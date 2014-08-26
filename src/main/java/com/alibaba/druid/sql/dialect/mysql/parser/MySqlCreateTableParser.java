@@ -19,10 +19,13 @@ import com.alibaba.druid.sql.ast.SQLName;
 import com.alibaba.druid.sql.ast.statement.SQLCheck;
 import com.alibaba.druid.sql.ast.statement.SQLColumnDefinition;
 import com.alibaba.druid.sql.ast.statement.SQLCreateTableStatement;
+import com.alibaba.druid.sql.ast.statement.SQLForeignKeyConstraint;
 import com.alibaba.druid.sql.ast.statement.SQLSelect;
-import com.alibaba.druid.sql.ast.statement.SQLTableConstaint;
-import com.alibaba.druid.sql.dialect.mysql.ast.MySqlForeignKey;
+import com.alibaba.druid.sql.ast.statement.SQLTableConstraint;
 import com.alibaba.druid.sql.dialect.mysql.ast.MySqlKey;
+import com.alibaba.druid.sql.dialect.mysql.ast.MySqlPrimaryKey;
+import com.alibaba.druid.sql.dialect.mysql.ast.MySqlUnique;
+import com.alibaba.druid.sql.dialect.mysql.ast.MysqlForeignKey;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlCreateTableStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlCreateTableStatement.TableSpaceOption;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlPartitionByHash;
@@ -93,7 +96,8 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
                 stmt.setLike(name);
             } else {
                 for (;;) {
-                    if (lexer.token() == Token.IDENTIFIER || lexer.token() == Token.LITERAL_CHARS) {
+                    if (lexer.token() == Token.IDENTIFIER //
+                        || lexer.token() == Token.LITERAL_CHARS) {
                         SQLColumnDefinition column = this.exprParser.parseColumn();
                         stmt.getTableElementList().add(column);
                     } else if (lexer.token() == Token.CONSTRAINT //
@@ -132,17 +136,19 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
                     } else if (lexer.token() == (Token.KEY)) {
                         stmt.getTableElementList().add(parseConstraint());
                     } else if (lexer.token() == (Token.PRIMARY)) {
-                        stmt.getTableElementList().add(parseConstraint());
+                        SQLTableConstraint pk = parseConstraint();
+                        pk.setParent(stmt);
+                        stmt.getTableElementList().add(pk);
                     } else if (lexer.token() == (Token.FOREIGN)) {
-                        MySqlForeignKey fk = this.getExprParser().parseForeignKey();
+                        SQLForeignKeyConstraint fk = this.getExprParser().parseForeignKey();
+                        fk.setParent(stmt);
                         stmt.getTableElementList().add(fk);
                     } else if (lexer.token() == Token.CHECK) {
-                        lexer.nextToken();
-                        SQLCheck check = new SQLCheck();
-                        accept(Token.LPAREN);
-                        check.setExpr(this.exprParser.expr());
-                        accept(Token.RPAREN);
+                        SQLCheck check = this.exprParser.parseCheck();
                         stmt.getTableElementList().add(check);
+                    } else {
+                        SQLColumnDefinition column = this.exprParser.parseColumn();
+                        stmt.getTableElementList().add(column);
                     }
 
                     if (!(lexer.token() == (Token.COMMA))) {
@@ -333,7 +339,7 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
                 continue;
             }
 
-            if (identifierEquals("TABLESPACE")) {
+            if (lexer.token() == Token.TABLESPACE) {
                 lexer.nextToken();
 
                 TableSpaceOption option = new TableSpaceOption();
@@ -487,7 +493,7 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
                                 MySqlPartitioningDef.InValues values = new MySqlPartitioningDef.InValues();
 
                                 accept(Token.LPAREN);
-                                this.exprParser.exprList(values.getItems());
+                                this.exprParser.exprList(values.getItems(), values);
                                 accept(Token.RPAREN);
                                 partitionDef.setValues(values);
                             } else {
@@ -497,7 +503,7 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
                                 MySqlPartitioningDef.LessThanValues values = new MySqlPartitioningDef.LessThanValues();
 
                                 accept(Token.LPAREN);
-                                this.exprParser.exprList(values.getItems());
+                                this.exprParser.exprList(values.getItems(), values);
                                 accept(Token.RPAREN);
                                 partitionDef.setValues(values);
                             }
@@ -544,6 +550,10 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
         if (lexer.token() == (Token.ON)) {
             throw new ParserException("TODO");
         }
+        
+        if (lexer.token() == (Token.AS)) {
+            lexer.nextToken();
+        }
 
         if (lexer.token() == (Token.SELECT)) {
             SQLSelect query = new MySqlSelectParser(this.exprParser).select();
@@ -585,9 +595,11 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
         return false;
     }
 
-    protected SQLTableConstaint parseConstraint() {
+    protected SQLTableConstraint parseConstraint() {
         SQLName name = null;
+        boolean hasConstaint = false;
         if (lexer.token() == (Token.CONSTRAINT)) {
+            hasConstaint = true;
             lexer.nextToken();
         }
 
@@ -599,15 +611,26 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
             lexer.nextToken();
 
             MySqlKey key = new MySqlKey();
+            key.setHasConstaint(hasConstaint);
 
+//            if (identifierEquals("USING")) {
+//                lexer.nextToken();
+//                key.setIndexType(lexer.stringVal());
+//                lexer.nextToken();
+//            }
+
+            if (lexer.token() == Token.IDENTIFIER) {
+                SQLName indexName = this.exprParser.name();
+                if (indexName != null) {
+                    key.setIndexName(indexName);
+                }
+            }
+            
+            //5.5语法 USING BTREE 放在index 名字后
             if (identifierEquals("USING")) {
                 lexer.nextToken();
                 key.setIndexType(lexer.stringVal());
                 lexer.nextToken();
-            }
-
-            if (lexer.token() == Token.IDENTIFIER) {
-                name = this.exprParser.name();
             }
 
             accept(Token.LPAREN);
@@ -634,15 +657,27 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
             return key;
         }
 
-        if (lexer.token() == (Token.PRIMARY)) {
-            return (SQLTableConstaint) this.exprParser.parsePrimaryKey();
+        if (lexer.token() == Token.PRIMARY) {
+            MySqlPrimaryKey pk = this.getExprParser().parsePrimaryKey();
+            pk.setName(name);
+            pk.setHasConstaint(hasConstaint);
+            return (SQLTableConstraint) pk;
         }
 
-        if (lexer.token() == (Token.UNIQUE)) {
-            return (SQLTableConstaint) this.getExprParser().parseUnique();
+        if (lexer.token() == Token.UNIQUE) {
+            MySqlUnique uk = this.getExprParser().parseUnique();
+            uk.setName(name);
+            uk.setHasConstaint(hasConstaint);
+            return (SQLTableConstraint) uk;
         }
 
-        throw new ParserException("TODO");
+        if (lexer.token() == Token.FOREIGN) {
+            MysqlForeignKey fk = this.getExprParser().parseForeignKey();
+            fk.setName(name);
+            fk.setHasConstraint(hasConstaint);
+            return (SQLTableConstraint) fk;
+        }
+
+        throw new ParserException("TODO :" + lexer.token());
     }
-
 }

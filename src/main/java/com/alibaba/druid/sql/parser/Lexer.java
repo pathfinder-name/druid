@@ -69,6 +69,8 @@ public class Lexer {
     private int            varIndex     = -1;
 
     protected CommentHandler commentHandler;
+    
+    protected boolean        hasComment = false;
 
     public Lexer(String input){
         this(input, true);
@@ -173,7 +175,7 @@ public class Lexer {
     protected final void scanChar() {
         ch = charAt(++pos);
     }
-
+    
     protected void unscan() {
         ch = charAt(--pos);
     }
@@ -205,7 +207,7 @@ public class Lexer {
             scanChar();
         }
 
-        if (ch == ',') {
+        if (ch == ',' || ch == '，') {
             scanChar();
             token = COMMA;
             return;
@@ -315,6 +317,7 @@ public class Lexer {
                     scanNumber();
                     return;
                 case ',':
+                case '，':
                     scanChar();
                     token = COMMA;
                     return;
@@ -666,7 +669,6 @@ public class Lexer {
         bufPos = 1;
         char ch;
 
-        boolean mybatisFlag = false;
         if (charAt(pos + 1) == '@') {
             ch = charAt(++pos);
 
@@ -674,7 +676,29 @@ public class Lexer {
         } else if (charAt(pos + 1) == '{') {
             pos++;
             bufPos++;
-            mybatisFlag = true;
+            
+            for (;;) {
+                ch = charAt(++pos);
+
+                if (ch == '}') {
+                    break;
+                }
+
+                bufPos++;
+                continue;
+            }
+            
+            if (ch != '}') {
+                throw new ParserException("syntax error");
+            }
+            ++pos;
+            bufPos++;
+            
+            this.ch = charAt(pos);
+
+            stringVal = addSymbol();
+            token = Token.VARIANT;
+            return;
         }
 
         for (;;) {
@@ -686,14 +710,6 @@ public class Lexer {
 
             bufPos++;
             continue;
-        }
-
-        if (mybatisFlag) {
-            if (ch != '}') {
-                throw new ParserException("syntax error");
-            }
-            ++pos;
-            bufPos++;
         }
 
         this.ch = charAt(pos);
@@ -733,6 +749,7 @@ public class Lexer {
 
             stringVal = subString(mark, bufPos);
             token = Token.MULTI_LINE_COMMENT;
+            hasComment = true;
             return;
         }
 
@@ -763,6 +780,7 @@ public class Lexer {
 
             stringVal = subString(mark + 1, bufPos);
             token = Token.LINE_COMMENT;
+            hasComment = true;
             return;
         }
     }
@@ -1024,11 +1042,15 @@ public class Lexer {
     }
 
     public BigDecimal decimalValue() {
-        return new BigDecimal(text.toCharArray(), mark, bufPos);
+        return new BigDecimal(subString(mark, bufPos).toCharArray());
     }
 
     public static interface CommentHandler {
 
         boolean handle(Token lastToken, String comment);
+    }
+
+    public boolean isHasComment() {
+        return hasComment;
     }
 }

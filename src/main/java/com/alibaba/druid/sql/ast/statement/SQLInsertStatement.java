@@ -25,8 +25,6 @@ import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
 public class SQLInsertStatement extends SQLInsertInto implements SQLStatement {
 
-    private static final long serialVersionUID = 1L;
-
     public SQLInsertStatement(){
 
     }
@@ -45,7 +43,6 @@ public class SQLInsertStatement extends SQLInsertInto implements SQLStatement {
 
     public static class ValuesClause extends SQLObjectImpl {
 
-        private static final long   serialVersionUID = 1L;
         private final List<SQLExpr> values;
 
         public ValuesClause(){
@@ -57,6 +54,11 @@ public class SQLInsertStatement extends SQLInsertInto implements SQLStatement {
             for (int i = 0; i < values.size(); ++i) {
                 values.get(i).setParent(this);
             }
+        }
+
+        public void addValue(SQLExpr value) {
+            value.setParent(this);
+            values.add(value);
         }
 
         public List<SQLExpr> getValues() {

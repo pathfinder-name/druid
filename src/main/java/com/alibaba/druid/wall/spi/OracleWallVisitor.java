@@ -15,9 +15,6 @@
  */
 package com.alibaba.druid.wall.spi;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.alibaba.druid.sql.SQLUtils;
 import com.alibaba.druid.sql.ast.SQLName;
 import com.alibaba.druid.sql.ast.SQLObject;
@@ -29,6 +26,7 @@ import com.alibaba.druid.sql.ast.expr.SQLPropertyExpr;
 import com.alibaba.druid.sql.ast.statement.SQLAlterTableStatement;
 import com.alibaba.druid.sql.ast.statement.SQLCallStatement;
 import com.alibaba.druid.sql.ast.statement.SQLCreateTableStatement;
+import com.alibaba.druid.sql.ast.statement.SQLCreateTriggerStatement;
 import com.alibaba.druid.sql.ast.statement.SQLDeleteStatement;
 import com.alibaba.druid.sql.ast.statement.SQLDropTableStatement;
 import com.alibaba.druid.sql.ast.statement.SQLExprTableSource;
@@ -40,7 +38,6 @@ import com.alibaba.druid.sql.ast.statement.SQLSelectStatement;
 import com.alibaba.druid.sql.ast.statement.SQLSetStatement;
 import com.alibaba.druid.sql.ast.statement.SQLUnionQuery;
 import com.alibaba.druid.sql.ast.statement.SQLUpdateStatement;
-import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlReplaceStatement;
 import com.alibaba.druid.sql.dialect.oracle.ast.stmt.OracleAlterTableStatement;
 import com.alibaba.druid.sql.dialect.oracle.ast.stmt.OracleCreateTableStatement;
 import com.alibaba.druid.sql.dialect.oracle.ast.stmt.OracleDeleteStatement;
@@ -51,6 +48,7 @@ import com.alibaba.druid.sql.dialect.oracle.ast.stmt.OracleSelectQueryBlock;
 import com.alibaba.druid.sql.dialect.oracle.ast.stmt.OracleSelectTableReference;
 import com.alibaba.druid.sql.dialect.oracle.ast.stmt.OracleUpdateStatement;
 import com.alibaba.druid.sql.dialect.oracle.visitor.OracleASTVisitorAdapter;
+import com.alibaba.druid.util.JdbcConstants;
 import com.alibaba.druid.wall.Violation;
 import com.alibaba.druid.wall.WallConfig;
 import com.alibaba.druid.wall.WallProvider;
@@ -58,29 +56,52 @@ import com.alibaba.druid.wall.WallVisitor;
 import com.alibaba.druid.wall.violation.ErrorCode;
 import com.alibaba.druid.wall.violation.IllegalSQLObjectViolation;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVisitor {
 
     private final WallConfig      config;
     private final WallProvider    provider;
-    private final List<Violation> violations = new ArrayList<Violation>();
+    private final List<Violation> violations  = new ArrayList<Violation>();
+    private boolean               sqlModified = false;
 
     public OracleWallVisitor(WallProvider provider){
         this.config = provider.getConfig();
         this.provider = provider;
     }
 
+    @Override
+    public String getDbType() {
+        return JdbcConstants.ORACLE;
+    }
+
+    @Override
+    public boolean isSqlModified() {
+        return sqlModified;
+    }
+
+    @Override
+    public void setSqlModified(boolean sqlModified) {
+        this.sqlModified = sqlModified;
+    }
+
+    @Override
     public WallProvider getProvider() {
         return provider;
     }
 
+    @Override
     public WallConfig getConfig() {
         return config;
     }
 
+    @Override
     public void addViolation(Violation violation) {
         this.violations.add(violation);
     }
 
+    @Override
     public List<Violation> getViolations() {
         return violations;
     }
@@ -89,7 +110,8 @@ public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVi
         String name = x.getName();
         name = WallVisitorUtils.form(name);
         if (config.isVariantCheck() && config.getDenyVariants().contains(name)) {
-            getViolations().add(new IllegalSQLObjectViolation(ErrorCode.VARIANT_DENY, "variable not allow : " + name, toSQL(x)));
+            getViolations().add(new IllegalSQLObjectViolation(ErrorCode.VARIANT_DENY, "variable not allow : " + name,
+                                                              toSQL(x)));
         }
         return true;
     }
@@ -105,8 +127,7 @@ public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVi
     }
 
     public boolean visit(SQLBinaryOpExpr x) {
-        WallVisitorUtils.check(this, x);
-        return true;
+        return WallVisitorUtils.check(this, x);
     }
 
     @Override
@@ -180,12 +201,19 @@ public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVi
 
     @Override
     public boolean visit(SQLSelectStatement x) {
-        if (!config.isSelelctAllow()) {
-            this.getViolations().add(new IllegalSQLObjectViolation(ErrorCode.SELECT_NOT_ALLOW, "select not allow", this.toSQL(x)));
+        if (!config.isSelectAllow()) {
+            this.getViolations().add(new IllegalSQLObjectViolation(ErrorCode.SELECT_NOT_ALLOW, "select not allow",
+                                                                   this.toSQL(x)));
             return false;
         }
+        WallVisitorUtils.initWallTopStatementContext();
 
         return true;
+    }
+
+    @Override
+    public void endVisit(SQLSelectStatement x) {
+        WallVisitorUtils.clearWallTopStatementContext();
     }
 
     @Override
@@ -195,9 +223,20 @@ public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVi
 
     @Override
     public boolean visit(SQLInsertStatement x) {
+        WallVisitorUtils.initWallTopStatementContext();
         WallVisitorUtils.checkInsert(this, x);
 
         return true;
+    }
+
+    @Override
+    public void endVisit(OracleInsertStatement x) {
+        endVisit((SQLInsertStatement) x);
+    }
+
+    @Override
+    public void endVisit(SQLInsertStatement x) {
+        WallVisitorUtils.clearWallTopStatementContext();
     }
 
     @Override
@@ -210,11 +249,18 @@ public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVi
     @Override
     public boolean visit(OracleMultiInsertStatement x) {
         if (!config.isInsertAllow()) {
-            this.getViolations().add(new IllegalSQLObjectViolation(ErrorCode.INSERT_NOT_ALLOW, "insert not allow", this.toSQL(x)));
+            this.getViolations().add(new IllegalSQLObjectViolation(ErrorCode.INSERT_NOT_ALLOW, "insert not allow",
+                                                                   this.toSQL(x)));
             return false;
         }
+        WallVisitorUtils.initWallTopStatementContext();
 
         return true;
+    }
+
+    @Override
+    public void endVisit(OracleMultiInsertStatement x) {
+        WallVisitorUtils.clearWallTopStatementContext();
     }
 
     @Override
@@ -229,12 +275,23 @@ public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVi
     }
 
     @Override
+    public void endVisit(OracleDeleteStatement x) {
+        endVisit((SQLDeleteStatement) x);
+    }
+
+    @Override
+    public void endVisit(SQLDeleteStatement x) {
+        WallVisitorUtils.clearWallTopStatementContext();
+    }
+
+    @Override
     public boolean visit(OracleUpdateStatement x) {
         return visit((SQLUpdateStatement) x);
     }
 
     @Override
     public boolean visit(SQLUpdateStatement x) {
+        WallVisitorUtils.initWallTopStatementContext();
         WallVisitorUtils.checkUpdate(this, x);
 
         return true;
@@ -257,36 +314,37 @@ public class OracleWallVisitor extends OracleASTVisitorAdapter implements WallVi
         WallVisitorUtils.check(this, x);
         return true;
     }
-    
+
     @Override
     public boolean visit(SQLAlterTableStatement x) {
         WallVisitorUtils.check(this, x);
         return true;
     }
-    
+
     @Override
     public boolean visit(OracleAlterTableStatement x) {
         WallVisitorUtils.check(this, x);
         return true;
     }
-    
+
     @Override
     public boolean visit(SQLDropTableStatement x) {
         WallVisitorUtils.check(this, x);
         return true;
     }
-    
+
     @Override
     public boolean visit(SQLSetStatement x) {
         return false;
     }
-    
-    public boolean visit(MySqlReplaceStatement x) {
-        return true;
-    }
-    
+
     @Override
     public boolean visit(SQLCallStatement x) {
+        return false;
+    }
+
+    @Override
+    public boolean visit(SQLCreateTriggerStatement x) {
         return false;
     }
 }

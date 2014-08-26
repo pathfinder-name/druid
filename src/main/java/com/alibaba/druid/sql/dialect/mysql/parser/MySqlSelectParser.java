@@ -64,12 +64,11 @@ public class MySqlSelectParser extends SQLSelectParser {
 
         if (lexer.token() == Token.SELECT) {
             lexer.nextToken();
-            
 
             if (lexer.token() == Token.HINT) {
                 this.exprParser.parseHints(queryBlock.getHints());
             }
-            
+
             if (lexer.token() == Token.COMMENT) {
                 lexer.nextToken();
             }
@@ -126,63 +125,8 @@ public class MySqlSelectParser extends SQLSelectParser {
             }
 
             parseSelectList(queryBlock);
-
-            if (lexer.token() == (Token.INTO)) {
-                lexer.nextToken();
-
-                if (identifierEquals("OUTFILE")) {
-                    lexer.nextToken();
-
-                    MySqlOutFileExpr outFile = new MySqlOutFileExpr();
-                    outFile.setFile(expr());
-
-                    queryBlock.setInto(outFile);
-
-                    if (identifierEquals("FIELDS") || identifierEquals("COLUMNS")) {
-                        lexer.nextToken();
-
-                        if (identifierEquals("TERMINATED")) {
-                            lexer.nextToken();
-                            accept(Token.BY);
-                        }
-                        outFile.setColumnsTerminatedBy((SQLLiteralExpr) expr());
-
-                        if (identifierEquals("OPTIONALLY")) {
-                            lexer.nextToken();
-                            outFile.setColumnsEnclosedOptionally(true);
-                        }
-
-                        if (identifierEquals("ENCLOSED")) {
-                            lexer.nextToken();
-                            accept(Token.BY);
-                            outFile.setColumnsEnclosedBy((SQLLiteralExpr) expr());
-                        }
-
-                        if (identifierEquals("ESCAPED")) {
-                            lexer.nextToken();
-                            accept(Token.BY);
-                            outFile.setColumnsEscaped((SQLLiteralExpr) expr());
-                        }
-                    }
-
-                    if (identifierEquals("LINES")) {
-                        lexer.nextToken();
-
-                        if (identifierEquals("STARTING")) {
-                            lexer.nextToken();
-                            accept(Token.BY);
-                            outFile.setLinesStartingBy((SQLLiteralExpr) expr());
-                        } else {
-                            identifierEquals("TERMINATED");
-                            lexer.nextToken();
-                            accept(Token.BY);
-                            outFile.setLinesTerminatedBy((SQLLiteralExpr) expr());
-                        }
-                    }
-                } else {
-                    queryBlock.setInto(this.exprParser.name());
-                }
-            }
+            
+            parseInto(queryBlock);
         }
 
         parseFrom(queryBlock);
@@ -197,16 +141,12 @@ public class MySqlSelectParser extends SQLSelectParser {
             queryBlock.setLimit(parseLimit());
         }
 
-        if (identifierEquals("PROCEDURE")) {
+        if (lexer.token() == Token.PROCEDURE) {
             lexer.nextToken();
             throw new ParserException("TODO");
         }
 
-        if (lexer.token() == Token.INTO) {
-            lexer.nextToken();
-            SQLExpr expr = this.exprParser.name();
-            queryBlock.setInto(expr);
-        }
+        parseInto(queryBlock);
 
         if (lexer.token() == Token.FOR) {
             lexer.nextToken();
@@ -225,40 +165,107 @@ public class MySqlSelectParser extends SQLSelectParser {
 
         return queryRest(queryBlock);
     }
+    
+    protected void parseInto(SQLSelectQueryBlock queryBlock) {
+        if (lexer.token() == (Token.INTO)) {
+            lexer.nextToken();
+
+            if (identifierEquals("OUTFILE")) {
+                lexer.nextToken();
+
+                MySqlOutFileExpr outFile = new MySqlOutFileExpr();
+                outFile.setFile(expr());
+
+                queryBlock.setInto(outFile);
+
+                if (identifierEquals("FIELDS") || identifierEquals("COLUMNS")) {
+                    lexer.nextToken();
+
+                    if (identifierEquals("TERMINATED")) {
+                        lexer.nextToken();
+                        accept(Token.BY);
+                    }
+                    outFile.setColumnsTerminatedBy((SQLLiteralExpr) expr());
+
+                    if (identifierEquals("OPTIONALLY")) {
+                        lexer.nextToken();
+                        outFile.setColumnsEnclosedOptionally(true);
+                    }
+
+                    if (identifierEquals("ENCLOSED")) {
+                        lexer.nextToken();
+                        accept(Token.BY);
+                        outFile.setColumnsEnclosedBy((SQLLiteralExpr) expr());
+                    }
+
+                    if (identifierEquals("ESCAPED")) {
+                        lexer.nextToken();
+                        accept(Token.BY);
+                        outFile.setColumnsEscaped((SQLLiteralExpr) expr());
+                    }
+                }
+
+                if (identifierEquals("LINES")) {
+                    lexer.nextToken();
+
+                    if (identifierEquals("STARTING")) {
+                        lexer.nextToken();
+                        accept(Token.BY);
+                        outFile.setLinesStartingBy((SQLLiteralExpr) expr());
+                    } else {
+                        identifierEquals("TERMINATED");
+                        lexer.nextToken();
+                        accept(Token.BY);
+                        outFile.setLinesTerminatedBy((SQLLiteralExpr) expr());
+                    }
+                }
+            } else {
+                queryBlock.setInto(this.exprParser.name());
+            }
+        }
+    }
 
     protected void parseGroupBy(SQLSelectQueryBlock queryBlock) {
-        if (lexer.token() == (Token.GROUP)) {
+        SQLSelectGroupByClause groupBy = null;
+
+        if (lexer.token() == Token.GROUP) {
+            groupBy = new SQLSelectGroupByClause();
+
             lexer.nextToken();
             accept(Token.BY);
 
-            SQLSelectGroupByClause groupBy = new SQLSelectGroupByClause();
             while (true) {
-                groupBy.getItems().add(this.exprParser.expr());
+                groupBy.addItem(this.exprParser.expr());
                 if (!(lexer.token() == (Token.COMMA))) {
                     break;
                 }
                 lexer.nextToken();
             }
 
-            if (identifierEquals("WITH")) {
+            if (lexer.token() == Token.WITH) {
                 lexer.nextToken();
                 acceptIdentifier("ROLLUP");
 
                 MySqlSelectGroupBy mySqlGroupBy = new MySqlSelectGroupBy();
-                mySqlGroupBy.getItems().addAll(groupBy.getItems());
+                for (SQLExpr sqlExpr : groupBy.getItems()) {
+                    mySqlGroupBy.addItem(sqlExpr);
+                }
                 mySqlGroupBy.setRollUp(true);
 
                 groupBy = mySqlGroupBy;
             }
-
-            if (lexer.token() == Token.HAVING) {
-                lexer.nextToken();
-
-                groupBy.setHaving(this.exprParser.expr());
-            }
-
-            queryBlock.setGroupBy(groupBy);
         }
+
+        if (lexer.token() == Token.HAVING) {
+            lexer.nextToken();
+
+            if (groupBy == null) {
+                groupBy = new SQLSelectGroupByClause();
+            }
+            groupBy.setHaving(this.exprParser.expr());
+        }
+
+        queryBlock.setGroupBy(groupBy);
     }
 
     protected SQLTableSource parseTableSourceRest(SQLTableSource tableSource) {

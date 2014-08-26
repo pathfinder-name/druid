@@ -20,9 +20,8 @@ import com.alibaba.druid.sql.dialect.mysql.visitor.MySqlASTVisitor;
 
 public class MySqlUserName extends MySqlExprImpl implements SQLName {
 
-    private static final long serialVersionUID = 1L;
-    private String            userName;
-    private String            host;
+    private String userName;
+    private String host;
 
     public String getUserName() {
         return userName;
@@ -46,11 +45,11 @@ public class MySqlUserName extends MySqlExprImpl implements SQLName {
         visitor.endVisit(this);
     }
 
-    public String getSimleName() {
+    public String getSimpleName() {
         return userName + '@' + host;
     }
-    
+
     public String toString() {
-        return getSimleName();
+        return getSimpleName();
     }
 }

@@ -15,10 +15,8 @@
  */
 package com.alibaba.druid.wall.spi;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.alibaba.druid.sql.SQLUtils;
+import com.alibaba.druid.sql.ast.SQLCommentHint;
 import com.alibaba.druid.sql.ast.SQLName;
 import com.alibaba.druid.sql.ast.SQLObject;
 import com.alibaba.druid.sql.ast.expr.SQLBinaryOpExpr;
@@ -31,6 +29,7 @@ import com.alibaba.druid.sql.ast.statement.SQLAlterTableStatement;
 import com.alibaba.druid.sql.ast.statement.SQLAssignItem;
 import com.alibaba.druid.sql.ast.statement.SQLCallStatement;
 import com.alibaba.druid.sql.ast.statement.SQLCreateTableStatement;
+import com.alibaba.druid.sql.ast.statement.SQLCreateTriggerStatement;
 import com.alibaba.druid.sql.ast.statement.SQLDeleteStatement;
 import com.alibaba.druid.sql.ast.statement.SQLDropTableStatement;
 import com.alibaba.druid.sql.ast.statement.SQLExprTableSource;
@@ -46,7 +45,6 @@ import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlOutFileExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlAlterTableStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlCreateTableStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlDeleteStatement;
-import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlDropTableStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlInsertStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlReplaceStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlSelectGroupBy;
@@ -57,38 +55,63 @@ import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlUnionQuery;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlUpdateStatement;
 import com.alibaba.druid.sql.dialect.mysql.visitor.MySqlASTVisitor;
 import com.alibaba.druid.sql.dialect.mysql.visitor.MySqlASTVisitorAdapter;
+import com.alibaba.druid.util.JdbcConstants;
 import com.alibaba.druid.wall.Violation;
 import com.alibaba.druid.wall.WallConfig;
 import com.alibaba.druid.wall.WallContext;
 import com.alibaba.druid.wall.WallProvider;
 import com.alibaba.druid.wall.WallSqlTableStat;
 import com.alibaba.druid.wall.WallVisitor;
+import com.alibaba.druid.wall.spi.WallVisitorUtils.WallTopStatementContext;
 import com.alibaba.druid.wall.violation.ErrorCode;
 import com.alibaba.druid.wall.violation.IllegalSQLObjectViolation;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisitor, MySqlASTVisitor {
 
     private final WallConfig      config;
     private final WallProvider    provider;
-    private final List<Violation> violations = new ArrayList<Violation>();
+    private final List<Violation> violations  = new ArrayList<Violation>();
+    private boolean               sqlModified = false;
 
     public MySqlWallVisitor(WallProvider provider){
         this.config = provider.getConfig();
         this.provider = provider;
     }
 
+    @Override
+    public String getDbType() {
+        return JdbcConstants.MYSQL;
+    }
+
+    @Override
+    public boolean isSqlModified() {
+        return sqlModified;
+    }
+
+    @Override
+    public void setSqlModified(boolean sqlModified) {
+        this.sqlModified = sqlModified;
+    }
+
+    @Override
     public WallProvider getProvider() {
         return provider;
     }
 
+    @Override
     public WallConfig getConfig() {
         return config;
     }
 
+    @Override
     public void addViolation(Violation violation) {
         this.violations.add(violation);
     }
 
+    @Override
     public List<Violation> getViolations() {
         return violations;
     }
@@ -99,8 +122,7 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
     }
 
     public boolean visit(SQLBinaryOpExpr x) {
-        WallVisitorUtils.check(this, x);
-        return true;
+        return WallVisitorUtils.check(this, x);
     }
 
     @Override
@@ -175,7 +197,7 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
 
     @Override
     public boolean visit(SQLSelectStatement x) {
-        if (!config.isSelelctAllow()) {
+        if (!config.isSelectAllow()) {
             this.getViolations().add(new IllegalSQLObjectViolation(ErrorCode.SELECT_NOT_ALLOW, "select not allow",
                                                                    this.toSQL(x)));
             return false;
@@ -198,7 +220,7 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
             int rowCount = ((SQLNumericLiteralExpr) x.getRowCount()).getNumber().intValue();
             if (rowCount == 0) {
                 if (context != null) {
-                    context.incrementWarnnings();
+                    context.incrementWarnings();
                 }
 
                 if (!provider.getConfig().isLimitZeroAllow()) {
@@ -226,7 +248,8 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
                     boolean isTop = WallVisitorUtils.isTopNoneFromSelect(this, x);
                     if (!isTop) {
                         boolean allow = true;
-                        if (WallVisitorUtils.isWhereOrHaving(x) && isDeny(varName)) {
+                        if (isDeny(varName)
+                            && (WallVisitorUtils.isWhereOrHaving(x) || WallVisitorUtils.checkSqlExpr(varExpr))) {
                             allow = false;
                         }
 
@@ -278,6 +301,7 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
             varName = varName.substring(2);
         }
 
+        varName = varName.toLowerCase();
         return config.getDenyVariants().contains(varName);
     }
 
@@ -288,10 +312,17 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
         }
 
         if (varName.startsWith("@@") && !checkVar(x.getParent(), x.getName())) {
+
+            final WallTopStatementContext topStatementContext = WallVisitorUtils.getWallTopStatementContext();
+            if (topStatementContext != null
+                && (topStatementContext.fromSysSchema() || topStatementContext.fromSysTable())) {
+                return false;
+            }
+
             boolean isTop = WallVisitorUtils.isTopNoneFromSelect(this, x);
             if (!isTop) {
                 boolean allow = true;
-                if (WallVisitorUtils.isWhereOrHaving(x) && isDeny(varName)) {
+                if (isDeny(varName) && (WallVisitorUtils.isWhereOrHaving(x) || WallVisitorUtils.checkSqlExpr(x))) {
                     allow = false;
                 }
 
@@ -324,7 +355,7 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
 
     @Override
     public boolean visit(MySqlOutFileExpr x) {
-        if (!config.isSelectIntoOutfileAllow()) {
+        if (!config.isSelectIntoOutfileAllow() && !WallVisitorUtils.isTopSelectOutFile(x)) {
             violations.add(new IllegalSQLObjectViolation(ErrorCode.INTO_OUTFILE, "into out file not allow", toSQL(x)));
         }
 
@@ -398,12 +429,6 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
     }
 
     @Override
-    public boolean visit(MySqlDropTableStatement x) {
-        WallVisitorUtils.check(this, x);
-        return true;
-    }
-
-    @Override
     public boolean visit(SQLSetStatement x) {
         return false;
     }
@@ -419,8 +444,92 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
     }
 
     @Override
+    public boolean visit(SQLCommentHint x) {
+        if(!provider.getConfig().isHintAllow()) {
+            addViolation(new IllegalSQLObjectViolation(ErrorCode.EVIL_HINTS, "hint not allow", SQLUtils.toMySqlString(x)));
+            return true;
+        }
+        
+        String text = x.getText();
+        text = text.trim();
+        if (text.startsWith("!")) {
+            text = text.substring(1);
+        }
+
+        if (text.length() == 0) {
+            return true;
+        }
+
+        if (Character.isDigit(text.charAt(0))) {
+            addViolation(new IllegalSQLObjectViolation(ErrorCode.EVIL_HINTS, "evil hints", SQLUtils.toMySqlString(x)));
+        }
+
+        text = text.toLowerCase();
+
+        for (int i = 0; i < text.length(); ++i) {
+            char ch = text.charAt(i);
+            switch (ch) {
+                case ';':
+                case '>':
+                case '=':
+                case '<':
+                case '&':
+                case '|':
+                case '^':
+                case '\n':
+                    addViolation(new IllegalSQLObjectViolation(ErrorCode.EVIL_HINTS, "evil hints",
+                                                               SQLUtils.toMySqlString(x)));
+                default:
+                    break;
+            }
+        }
+
+        if (text.indexOf("or") != -1 //
+            || text.indexOf("and") != -1 //
+            || text.indexOf("union") != -1 //
+            || text.indexOf("xor") != -1 //
+
+            || text.indexOf("select") != -1 //
+            || text.indexOf("delete") != -1 //
+            || text.indexOf("insert") != -1 //
+            || text.indexOf("update") != -1 //
+            || text.indexOf("into") != -1 //
+
+            || text.indexOf("create") != -1 //
+            || text.indexOf("drop") != -1 //
+            || text.indexOf("alter") != -1 //
+            || text.indexOf("truncate") != -1 //
+
+            || text.indexOf("information_schema") != -1 //
+            || text.indexOf("mysql") != -1 //
+            || text.indexOf("performance_schema") != -1 //
+
+            || text.indexOf("sleep") != -1 //
+            || text.indexOf("benchmark") != -1 //
+            || text.indexOf("load_file") != -1 //
+            || text.indexOf("version") != -1 //
+            || text.indexOf("database") != -1 //
+            || text.indexOf("schema") != -1 //
+            || text.indexOf("system_user") != -1 //
+            || text.indexOf("session_user") != -1 //
+            || text.indexOf("current_user") != -1 //
+            || text.indexOf("user") != -1 //
+            || text.indexOf("xmltype") != -1 //
+            || text.indexOf("receive_message") != -1 //
+
+            || text.indexOf("version_compile_os") != -1 //
+            || text.indexOf("basedir") != -1 //
+            || text.indexOf("datadir") != -1 //
+        ) {
+            addViolation(new IllegalSQLObjectViolation(ErrorCode.EVIL_HINTS, "evil hints", SQLUtils.toMySqlString(x)));
+        }
+
+        return true;
+    }
+
+    @Override
     public boolean visit(MySqlShowCreateTableStatement x) {
-        String tableName = ((SQLName) x.getName()).getSimleName();
+        String tableName = ((SQLName) x.getName()).getSimpleName();
         WallContext context = WallContext.current();
         if (context != null) {
             WallSqlTableStat tableStat = context.getTableStat(tableName);
@@ -428,6 +537,11 @@ public class MySqlWallVisitor extends MySqlASTVisitorAdapter implements WallVisi
                 tableStat.incrementShowCount();
             }
         }
+        return false;
+    }
+
+    @Override
+    public boolean visit(SQLCreateTriggerStatement x) {
         return false;
     }
 }

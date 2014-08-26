@@ -19,7 +19,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import com.alibaba.druid.mock.MockPreparedStatement;
@@ -29,7 +29,7 @@ import com.alibaba.druid.stat.DruidDataSourceStatManager;
 public class TestSharePreparedStatements extends TestCase {
 
     protected void setUp() throws Exception {
-        DruidDataSourceStatManager.cear();
+        DruidDataSourceStatManager.clear();
     }
 
     protected void tearDown() throws Exception {

@@ -34,15 +34,15 @@ public class MySqlWallTest91 extends TestCase {
     private WallProvider initWallProvider() {
         WallProvider provider = new MySqlWallProvider();
 
-        provider.getConfig().setUseAllow(true);
         provider.getConfig().setStrictSyntaxCheck(false);
         provider.getConfig().setMultiStatementAllow(true);
-        provider.getConfig().setConditionAndAlwayTrueAllow(true);
+        provider.getConfig().setConditionAndAlwaysTrueAllow(true);
         provider.getConfig().setNoneBaseStatementAllow(true);
-        provider.getConfig().setSelectUnionCheck(false);
-        provider.getConfig().setSchemaCheck(true);
         provider.getConfig().setLimitZeroAllow(true);
+        provider.getConfig().setConditionDoubleConstAllow(true);
+
         provider.getConfig().setCommentAllow(true);
+        provider.getConfig().setSelectUnionCheck(false);
 
         return provider;
     }
@@ -50,7 +50,7 @@ public class MySqlWallTest91 extends TestCase {
     public void test_false() throws Exception {
         WallProvider provider = initWallProvider();
         {
-            String sql = "SELECT count(*) FROM i_user_commentary WHERE item_type = 7 AND item_id = 30 AND SLEEP(5) AND is_del=0";
+            String sql = "SELECT t.session_id,t.voip_send,t.voip_rece,t.appid,t.begin_time,substring_index(t1.callbackUrl,':',1) AS servicetype, SUBSTRING_INDEX(substring_index(t1.callbackUrl,'/',3),'/',-1) AS hostname, CASE WHEN SUBSTR(t1.callbackUrl,-2)='**' THEN REPLACE(t1.callbackUrl,'**','OfflineMsgNotify') ELSE t1.callbackUrl END AS url FROM `im_session_info` t INNER JOIN ccp_application t1 ON t.appid=t1.appId WHERE t.end_time IS NULL AND ((DATABASE()='openser' AND t1.`status`=2) OR ((DATABASE()<>'openser') AND t1.`status` IN (1,2,3))) AND INSTR(t1.funInfo,'1004')>0 AND (0=0 OR (0>0 AND t.id<0)) ORDER BY t.id DESC LIMIT 100; ";
             Assert.assertFalse(provider.checkValid(sql));
         }
     }
@@ -111,9 +111,96 @@ public class MySqlWallTest91 extends TestCase {
         }
     }
 
+    public void test_false8() throws Exception {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "select sum(payment_ft) from order_goods where order_id=72353 AND (SELECT 3791 FROM(SELECT COUNT(*),CONCAT(CHAR(58,110,106,120,58),(SELECT (CASE WHEN (3791=3791) THEN 1 ELSE 0 END)),CHAR(58,116,116,113,58),FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)";
+            Assert.assertFalse(provider.checkValid(sql));
+        }
+    }
+
+    public void test_false10() {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "select count(*) from messages a where a.id in (2 and 1 AND 9881=IF((ORD(MID((IFNULL(CAST(DATABASE() AS CHAR),0x20)),6,1))>117),SLEEP(5),9881)) and a.message <> 'hello' and a.message like 'Little'";
+            Assert.assertFalse(provider.checkValid(sql));
+        }
+    }
+
+    public void test_false11() {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "select * from messages where id=1 limit (select count(*) from products group by concat(version(),0x27202020,floor(rand(0)*2-1)));";
+            Assert.assertFalse(provider.checkValid(sql));
+        }
+    }
+
+    public void test_false12() {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "select * from dede_admin where id=1 order by if((ascii(substr(user(),1,1))>95),1,2);";
+            Assert.assertFalse(provider.checkValid(sql));
+        }
+    }
+
+    public void test_false13() {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "select * from dede_admin where id=1 limit if((ascii(substr(user(),1,1))>95),1,0);";
+            Assert.assertFalse(provider.checkValid(sql));
+        }
+    }
+
+    public void test_true1() throws Exception {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "SELECT *, DATABASE(), NOW() AS a_now FROM `acp_globalauth` WHERE `username` = 'info@nyip.cn'";
+            Assert.assertTrue(provider.checkValid(sql));
+        }
+    }
+
+    public void test_true2() throws Exception {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "DELETE SYS_ACCNBAL WHERE ISNULL(AMTN_Y,0)=0 AND ISNULL(AMTN_B,0)=0 AND ISNULL(AMTN_D,0)=0 AND ISNULL(AMTN_C,0)=0";
+            Assert.assertTrue(provider.checkValid(sql));
+        }
+        {
+            String sql = "select * from (select '已结算' as JSFare,TB_LogisticsCostSettle.s_id,TB_LogisticsCostSettle.XSD_billsn,TB_LogisticsCostSettle.OrderDD_list,TB_LogisticsCostSettle.OrderId_list,TBShop.ShopName,TB_LogisticsCostSettle.consign_time,TB_LogisticsCostSettle.Logistics_ID,TB_LogisticsCompanySet.Company,isnull(TB_LogisticsCostSettle.TBFareMoney,0.00)TBFareMoney,TB_LogisticsCostSettle.TBProdSJZNNumber,isnull(TB_LogisticsCostSettle.SJLogisticsCostMoney,0.00)LogisticsCostMoney,isnull(TB_LogisticsCostSettle.SJLogisticsCostMoney,0.00)SJLogisticsCostMoney,isnull(TB_LogisticsCostSettle.SJLogisticsCostMoney,0)-isnull(TB_LogisticsCostSettle.TBJSFareMoney,0) as NotMoney,TB_LogisticsCostSettle.TBAddressee,TB_LogisticsCostSettle.TBAddress,TB_LogisticsCostSettle.TBMobile,TB_LogisticsCostSettle.TBLinephone,TB_LogisticsCostSettle.TBJSFareMoney,TB_LogisticsCostSettle.Express,TB_LogisticsCostSettle.Fhuser_list,TB_LogisticsCostSettle.LogisticsCost_billsn,dbo.F_GetLogisticsFKDMoney(TB_LogisticsCostSettle.s_id,TB_LogisticsCostSettle.LogisticsCost_billsn) fkdmoney,isnull(TB_LogisticsCostSettle.TBFareMoney,0)-isnull(TB_LogisticsCostSettle.SJLogisticsCostMoney,0) LogisticsProfitMoney,isnull(TB_LogisticsCostSettle.IsEnterFare,0)IsEnterFare from TB_LogisticsCostSettle left join TBShop on TB_LogisticsCostSettle.TBShop_ID=TBShop.ShopID left join TB_LogisticsCompanySet on TB_LogisticsCostSettle.Logistics_ID=TB_LogisticsCompanySet.s_ID where isnull(TB_LogisticsCostSettle.IsEnterFare,0)=1 or (isnull(TB_LogisticsCostSettle.IsEnterFare,0)=2 and isnull(TB_LogisticsCostSettle.SJLogisticsCostMoney,0)-isnull(TB_LogisticsCostSettle.TBJSFareMoney,0)>0))MTwhere 1=1and MT.consign_time>='2013-04-28 00:00:00' and MT.consign_time<='2013-05-28 23:59:59'";
+            Assert.assertTrue(provider.checkValid(sql));
+        }
+    }
+
+    public void test_false9() throws Exception {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "select  PROJECT_NAME, TABLE_NAME, EXPORT_COLUMNS, CURRENT_TIMESTAMP() start_time from (SELECT PROJECT_NAME, TABLE_NAME, EXPORT_COLUMNS, @rank := @rank + 1 AS rank FROM (  SELECT  PROJECT_NAME,  TABLE_NAME,  (   SELECT   CASE   WHEN GROUP_CONCAT(COLUMN_name) LIKE 'ID,%' THEN   SUBSTR(    GROUP_CONCAT(COLUMN_name),    4   )   ELSE   GROUP_CONCAT(COLUMN_name)   END   FROM   Information_schema.`COLUMNS` A   WHERE   A.table_name = B.TABLE_NAME   ORDER BY   ORDINAL_POSITION  ) EXPORT_COLUMNS  FROM  ETL_EXPORT b   ORDER BY  PROJECT_NAME,  TABLE_NAME ) tmp, (SELECT @rank := 0) a) b WHERE rank='2';";
+            Assert.assertFalse(provider.checkValid(sql));
+        }
+        {
+            String sql = "select  PROJECT_NAME, TABLE_NAME, EXPORT_COLUMNS, CURRENT_TIMESTAMP() start_time, case when type=1 then ' where day_id = 20130101 '  when type=2 and substr('20130101','7,2')='01' then 'where month_id=201301 ' else 'where 3=5 ' end export_where_data from (SELECT PROJECT_NAME, TABLE_NAME, EXPORT_COLUMNS, type, @rank := @rank + 1 AS rank FROM (  SELECT  PROJECT_NAME,  TABLE_NAME,  type,  (   SELECT   CASE   WHEN GROUP_CONCAT(COLUMN_name) LIKE 'ID,%' THEN   SUBSTR(    GROUP_CONCAT(COLUMN_name),    4   )   ELSE   GROUP_CONCAT(COLUMN_name)   END   FROM   Information_schema.`COLUMNS` A   WHERE   A.table_name = concat(B.TABLE_NAME,'_','201301')   ORDER BY   ORDINAL_POSITION  ) EXPORT_COLUMNS  FROM  ETL_EXPORT b  where project_name in ('acc')  ORDER BY  PROJECT_NAME,  TABLE_NAME ) tmp, (SELECT @rank := 0) a) b WHERE rank='3';";
+            Assert.assertFalse(provider.checkValid(sql));
+        }
+    }
+
+    public void test_true4() {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "SELECT 10006, @";
+            Assert.assertTrue(provider.checkValid(sql));
+        }
+    }
+
+    public void test_true5() {
+        WallProvider provider = initWallProvider();
+        {
+            String sql = "select * from view_featureWarm where 1 = 1 and MaterialID in (select Materialid from material where Code like '%%' and name like '%%' and specs like '%%') and sumbalcqty <> 0";
+            Assert.assertTrue(provider.checkValid(sql));
+        }
+    }
+
     public void test_true() throws Exception {
         WallProvider provider = initWallProvider();
-
         {
             String sql = "SELECT CONVERT(load_file(concat(@@datadir, 'sandbox', '/', 'ccp_application', '.frm')) USING utf8) AS source";
             Assert.assertTrue(provider.checkValid(sql));
@@ -149,7 +236,5 @@ public class MySqlWallTest91 extends TestCase {
             String sql = "select * from tb_product_word where name='' or CONCAT(name,style)='' or CONCAT(shop,style)='' or CONCAT(ename,style)=''";
             Assert.assertTrue(provider.checkValid(sql));
         }
-
     }
-
 }

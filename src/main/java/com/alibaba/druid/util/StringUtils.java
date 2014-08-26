@@ -51,7 +51,11 @@ public class StringUtils {
         if (indexFrom < 0 || indexTo < 0 || indexFrom > indexTo) {
             return null;
         }
-        indexFrom += start.length();
+
+        if (null != start) {
+            indexFrom += start.length();
+        }
+
         return src.substring(indexFrom, indexTo);
 
     }
@@ -100,6 +104,9 @@ public class StringUtils {
     }
     
     public static int lowerHashCode(String text) {
+        if (text == null) {
+            return 0;
+        }
 //        return text.toLowerCase().hashCode();
         int h = 0;
         for (int i = 0; i < text.length(); ++i) {

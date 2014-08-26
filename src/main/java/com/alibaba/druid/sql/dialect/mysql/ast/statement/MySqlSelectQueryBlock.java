@@ -28,7 +28,6 @@ import com.alibaba.druid.sql.dialect.mysql.ast.MySqlObject;
 import com.alibaba.druid.sql.dialect.mysql.visitor.MySqlASTVisitor;
 import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
-@SuppressWarnings("serial")
 public class MySqlSelectQueryBlock extends SQLSelectQueryBlock implements MySqlObject {
 
     private boolean              hignPriority;
@@ -282,6 +281,9 @@ public class MySqlSelectQueryBlock extends SQLSelectQueryBlock implements MySqlO
         }
 
         public void setRowCount(SQLExpr rowCount) {
+            if (rowCount != null) {
+                rowCount.setParent(this);
+            }
             this.rowCount = rowCount;
         }
 
@@ -290,6 +292,9 @@ public class MySqlSelectQueryBlock extends SQLSelectQueryBlock implements MySqlO
         }
 
         public void setOffset(SQLExpr offset) {
+            if (offset != null) {
+                offset.setParent(this);
+            }
             this.offset = offset;
         }
 

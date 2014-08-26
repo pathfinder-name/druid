@@ -48,6 +48,9 @@ public class MySqlLexer extends Lexer {
         map.put("TRUE", Token.TRUE);
         map.put("BINARY", Token.BINARY);
         map.put("SHOW", Token.SHOW);
+        map.put("CACHE", Token.CACHE);
+        map.put("ANALYZE", Token.ANALYZE);
+        map.put("OPTIMIZE", Token.OPTIMIZE);
 
         DEFAULT_MYSQL_KEYWORDS = new Keywords(map);
     }
@@ -61,19 +64,19 @@ public class MySqlLexer extends Lexer {
         super(input);
         super.keywods = DEFAULT_MYSQL_KEYWORDS;
     }
-    
+
     public void scanSharp() {
         if (ch != '#') {
             throw new ParserException("illegal stat");
         }
-        
+
         if (charAt(pos + 1) == '{') {
             scanVariable();
             return;
         }
-        
+
         Token lastToken = this.token;
-        
+
         scanChar();
         mark = pos;
         bufPos = 0;
@@ -99,15 +102,16 @@ public class MySqlLexer extends Lexer {
             scanChar();
             bufPos++;
         }
-        
+
         stringVal = subString(mark, bufPos);
         token = Token.LINE_COMMENT;
-        
+        hasComment = true;
+
         if (commentHandler != null && commentHandler.handle(lastToken, stringVal)) {
             return;
         }
 
-        if (!isAllowComment()) {
+        if (!isAllowComment() && (isEOF() || !isSafeComment(stringVal))) {
             throw new NotAllowCommentException();
         }
     }
@@ -312,7 +316,7 @@ public class MySqlLexer extends Lexer {
 
                 switch (ch) {
                     case '\0':
-                        putChar('\0');
+                        putChar(ch = '\0');
                         break;
                     case '\'':
                         putChar('\'');
@@ -342,9 +346,9 @@ public class MySqlLexer extends Lexer {
                         putChar(ch);
                         break;
                 }
-                scanChar();
-            }
 
+                continue;
+            }
             if (ch == '\'') {
                 scanChar();
                 if (ch != '\'') {
@@ -381,8 +385,15 @@ public class MySqlLexer extends Lexer {
 
     public void scanComment() {
         Token lastToken = this.token;
-
-        if (ch != '/' && ch != '-') {
+        
+        if (ch == '-') {
+            char next_2 = charAt(pos + 2);
+            if (isDigit(next_2)) {
+                scanChar();
+                token = Token.SUB;
+                return;
+            }
+        } else if (ch != '/') {
             throw new IllegalStateException();
         }
 
@@ -430,16 +441,15 @@ public class MySqlLexer extends Lexer {
             } else {
                 stringVal = subString(mark, bufPos);
                 token = Token.MULTI_LINE_COMMENT;
+                hasComment = true;
             }
 
-            if (token != Token.HINT) {
-                if (commentHandler != null && commentHandler.handle(lastToken, stringVal)) {
-                    return;
-                }
-                
-                if (!isAllowComment()) {
-                    throw new NotAllowCommentException();
-                }
+            if (commentHandler != null && commentHandler.handle(lastToken, stringVal)) {
+                return;
+            }
+
+            if (!isAllowComment() && (isEOF() || !isSafeComment(stringVal))) {
+                throw new NotAllowCommentException();
             }
 
             return;
@@ -473,16 +483,44 @@ public class MySqlLexer extends Lexer {
 
             stringVal = subString(mark, bufPos + 1);
             token = Token.LINE_COMMENT;
-            
+            hasComment = true;
+
             if (commentHandler != null && commentHandler.handle(lastToken, stringVal)) {
                 return;
             }
 
-            if (!isAllowComment()) {
+            if (!isAllowComment() && (isEOF() || !isSafeComment(stringVal))) {
                 throw new NotAllowCommentException();
             }
-            
+
             return;
         }
+    }
+    
+    private boolean isSafeComment(String comment) {
+        if (comment == null) {
+            return true;
+        }
+        comment = comment.toLowerCase();
+        if (comment.indexOf("select") != -1 //
+            || comment.indexOf("delete") != -1 //
+            || comment.indexOf("insert") != -1 //
+            || comment.indexOf("update") != -1 //
+            || comment.indexOf("into") != -1 //
+            || comment.indexOf("where") != -1 //
+            || comment.indexOf("or") != -1 //
+            || comment.indexOf("and") != -1 //
+            || comment.indexOf("union") != -1 //
+            || comment.indexOf('\'') != -1 //
+            || comment.indexOf('=') != -1 //
+            || comment.indexOf('>') != -1 //
+            || comment.indexOf('<') != -1 //
+            || comment.indexOf('&') != -1 //
+            || comment.indexOf('|') != -1 //
+            || comment.indexOf('^') != -1 //
+        ) {
+            return false;
+        }
+        return true;
     }
 }

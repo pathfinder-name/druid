@@ -283,7 +283,11 @@ public final class DruidStatService implements DruidStatServiceMBean {
             if (tables != null) {
                 List<Map<String, Object>> sortedArray = comparatorOrderBy(tables, parameters);
                 result.put("tables", sortedArray);
-                sortedArray = comparatorOrderBy((List<Map<String, Object>>) result.get("functions"), parameters);
+            }
+            
+            List<Map<String, Object>> functions = (List<Map<String, Object>>) result.get("functions");
+            if (functions != null) {
+                List<Map<String, Object>> sortedArray = comparatorOrderBy(functions, parameters);
                 result.put("functions", sortedArray);
             }
         } else {
@@ -317,7 +321,7 @@ public final class DruidStatService implements DruidStatServiceMBean {
             map.put("parsedOrderbycolumns", visitor.getOrderByColumns().toString());
         }
 
-        DateFormat format = new SimpleDateFormat("yyyy/MM/dd hh:mm:ss:SSS");
+        DateFormat format = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss:SSS");
         Date maxTimespanOccurTime = (Date) map.get("MaxTimespanOccurTime");
         if (maxTimespanOccurTime != null) {
             map.put("MaxTimespanOccurTime", format.format(maxTimespanOccurTime));

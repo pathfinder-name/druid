@@ -17,7 +17,7 @@ package com.alibaba.druid.bvt.pool;
 
 import java.sql.Connection;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import com.alibaba.druid.mock.MockDriver;
@@ -27,7 +27,7 @@ import com.alibaba.druid.stat.DruidDataSourceStatManager;
 public class TestIdle2 extends TestCase {
 
     protected void setUp() throws Exception {
-        DruidDataSourceStatManager.cear();
+        DruidDataSourceStatManager.clear();
     }
 
     protected void tearDown() throws Exception {

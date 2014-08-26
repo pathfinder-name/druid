@@ -1,9 +1,9 @@
 package com.alibaba.druid.sql.ast;
 
+import com.alibaba.druid.sql.visitor.SQLASTVisitor;
+
 import java.util.ArrayList;
 import java.util.List;
-
-import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
 /*
  * Copyright 1999-2011 Alibaba Group Holding Ltd.
@@ -22,10 +22,16 @@ import com.alibaba.druid.sql.visitor.SQLASTVisitor;
  */
 public class SQLOver extends SQLObjectImpl {
 
-    private static final long     serialVersionUID = 1L;
-
-    protected final List<SQLExpr> partitionBy      = new ArrayList<SQLExpr>();
+    protected final List<SQLExpr> partitionBy = new ArrayList<SQLExpr>();
     protected SQLOrderBy          orderBy;
+
+    public SQLOver(){
+
+    }
+
+    public SQLOver(SQLOrderBy orderBy){
+        this.setOrderBy(orderBy);
+    }
 
     @Override
     protected void accept0(SQLASTVisitor visitor) {
@@ -41,6 +47,9 @@ public class SQLOver extends SQLObjectImpl {
     }
 
     public void setOrderBy(SQLOrderBy orderBy) {
+        if (orderBy != null) {
+            orderBy.setParent(this);
+        }
         this.orderBy = orderBy;
     }
 
@@ -53,7 +62,7 @@ public class SQLOver extends SQLObjectImpl {
         final int prime = 31;
         int result = 1;
         result = prime * result + ((orderBy == null) ? 0 : orderBy.hashCode());
-        result = prime * result + ((partitionBy == null) ? 0 : partitionBy.hashCode());
+        result = prime * result + partitionBy.hashCode();
         return result;
     }
 
@@ -76,14 +85,7 @@ public class SQLOver extends SQLObjectImpl {
         } else if (!orderBy.equals(other.orderBy)) {
             return false;
         }
-        if (partitionBy == null) {
-            if (other.partitionBy != null) {
-                return false;
-            }
-        } else if (!partitionBy.equals(other.partitionBy)) {
-            return false;
-        }
-        return true;
+        return partitionBy.equals(other.partitionBy);
     }
 
 }

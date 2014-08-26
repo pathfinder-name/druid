@@ -22,7 +22,6 @@ import com.alibaba.druid.sql.ast.SQLName;
 import com.alibaba.druid.sql.ast.SQLStatementImpl;
 import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
-@SuppressWarnings("serial")
 public class SQLCreateTableStatement extends SQLStatementImpl implements SQLDDLStatement {
 
     protected Type                  type;
@@ -51,6 +50,9 @@ public class SQLCreateTableStatement extends SQLStatementImpl implements SQLDDLS
     }
 
     public void setTableSource(SQLExprTableSource tableSource) {
+        if (tableSource != null) {
+            tableSource.setParent(this);
+        }
         this.tableSource = tableSource;
     }
 

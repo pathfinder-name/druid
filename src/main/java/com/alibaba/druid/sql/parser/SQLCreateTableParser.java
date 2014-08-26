@@ -16,8 +16,9 @@
 package com.alibaba.druid.sql.parser;
 
 import com.alibaba.druid.sql.ast.statement.SQLColumnDefinition;
+import com.alibaba.druid.sql.ast.statement.SQLConstraint;
 import com.alibaba.druid.sql.ast.statement.SQLCreateTableStatement;
-import com.alibaba.druid.sql.ast.statement.SQLPrimaryKey;
+import com.alibaba.druid.sql.ast.statement.SQLTableElement;
 
 public class SQLCreateTableParser extends SQLDDLParser {
 
@@ -67,18 +68,30 @@ public class SQLCreateTableParser extends SQLDDLParser {
             lexer.nextToken();
 
             for (;;) {
-                if (lexer.token() == Token.IDENTIFIER || lexer.token() == Token.LITERAL_ALIAS) {
+                if (lexer.token() == Token.IDENTIFIER //
+                    || lexer.token() == Token.LITERAL_ALIAS) {
                     SQLColumnDefinition column = this.exprParser.parseColumn();
                     createTable.getTableElementList().add(column);
-                } else if (lexer.token() == Token.PRIMARY) {
-                    SQLPrimaryKey primaryKey = exprParser.parsePrimaryKey();
-                    createTable.getTableElementList().add(primaryKey);
-                } else {
+                } else if (lexer.token == Token.PRIMARY //
+                           || lexer.token == Token.UNIQUE //
+                           || lexer.token == Token.CHECK //
+                           || lexer.token == Token.CONSTRAINT) {
+                    SQLConstraint constraint = this.exprParser.parseConstaint();
+                    constraint.setParent(createTable);
+                    createTable.getTableElementList().add((SQLTableElement) constraint);
+                } else if (lexer.token() == Token.TABLESPACE) {
                     throw new ParserException("TODO " + lexer.token());
+                } else {
+                    SQLColumnDefinition column = this.exprParser.parseColumn();
+                    createTable.getTableElementList().add(column);
                 }
-                
+
                 if (lexer.token() == Token.COMMA) {
                     lexer.nextToken();
+                    
+                    if (lexer.token() == Token.RPAREN) { // compatible for sql server
+                        break;
+                    }
                     continue;
                 }
 
@@ -87,7 +100,7 @@ public class SQLCreateTableParser extends SQLDDLParser {
 
             // while
             // (this.tokenList.current().equals(OracleToken.ConstraintToken)) {
-            // parseConstaint(table.getConstaints());
+            // parseConstaint(table.getConstraints());
             //
             // if (this.tokenList.current().equals(OracleToken.CommaToken))
             // ;

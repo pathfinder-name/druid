@@ -32,6 +32,7 @@ import com.alibaba.druid.sql.ast.statement.SQLSubqueryTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLUnionOperator;
 import com.alibaba.druid.sql.ast.statement.SQLUnionQuery;
+import com.alibaba.druid.sql.ast.statement.SQLUnionQueryTableSource;
 import com.alibaba.druid.sql.ast.statement.SQLWithSubqueryClause;
 
 public class SQLSelectParser extends SQLParser {
@@ -61,6 +62,10 @@ public class SQLSelectParser extends SQLParser {
 
         if (select.getOrderBy() == null) {
             select.setOrderBy(parseOrderBy());
+        }
+
+        while(lexer.token() == Token.HINT) {
+            this.exprParser.parseHints(select.getHints());
         }
 
         return select;
@@ -97,6 +102,20 @@ public class SQLSelectParser extends SQLParser {
             union.setRight(right);
 
             return unionRest(union);
+        }
+
+        if (lexer.token() == Token.EXCEPT) {
+            lexer.nextToken();
+
+            SQLUnionQuery union = new SQLUnionQuery();
+            union.setLeft(selectQuery);
+
+            union.setOperator(SQLUnionOperator.EXCEPT);
+
+            SQLSelectQuery right = this.query();
+            union.setRight(right);
+
+            return union;
         }
 
         if (lexer.token() == Token.INTERSECT) {
@@ -141,7 +160,7 @@ public class SQLSelectParser extends SQLParser {
         }
 
         accept(Token.SELECT);
-        
+
         if (lexer.token() == Token.COMMENT) {
             lexer.nextToken();
         }
@@ -225,7 +244,7 @@ public class SQLSelectParser extends SQLParser {
 
             SQLSelectGroupByClause groupBy = new SQLSelectGroupByClause();
             while (true) {
-                groupBy.getItems().add(expr());
+                groupBy.addItem(expr());
                 if (lexer.token() != Token.COMMA) {
                     break;
                 }
@@ -252,28 +271,38 @@ public class SQLSelectParser extends SQLParser {
     protected final void parseSelectList(SQLSelectQueryBlock queryBlock) {
         final List<SQLSelectItem> selectList = queryBlock.getSelectList();
         for (;;) {
-            SQLExpr expr;
-            if (lexer.token() == Token.IDENTIFIER) {
-                expr = new SQLIdentifierExpr(lexer.stringVal());
-                lexer.nextTokenComma();
-
-                if (lexer.token() != Token.COMMA) {
-                    expr = this.exprParser.primaryRest(expr);
-                    expr = this.exprParser.exprRest(expr);
-                }
-            } else {
-                expr = expr();
-            }
-            final String alias = as();
-
-            final SQLSelectItem selectItem = new SQLSelectItem(expr, alias);
+            final SQLSelectItem selectItem = parseSelectItem();
             selectList.add(selectItem);
+
             if (lexer.token() != Token.COMMA) {
                 break;
             }
 
             lexer.nextToken();
         }
+    }
+
+    protected SQLSelectItem parseSelectItem() {
+        SQLExpr expr;
+        boolean connectByRoot = false;
+        if (lexer.token() == Token.IDENTIFIER) {
+            if (identifierEquals("CONNECT_BY_ROOT")) {
+                connectByRoot = true;
+                lexer.nextToken();
+            }
+            expr = new SQLIdentifierExpr(lexer.stringVal());
+            lexer.nextTokenComma();
+
+            if (lexer.token() != Token.COMMA) {
+                expr = this.exprParser.primaryRest(expr);
+                expr = this.exprParser.exprRest(expr);
+            }
+        } else {
+            expr = expr();
+        }
+        final String alias = as();
+
+        return new SQLSelectItem(expr, alias, connectByRoot);
     }
 
     public void parseFrom(SQLSelectQueryBlock queryBlock) {
@@ -293,8 +322,12 @@ public class SQLSelectParser extends SQLParser {
             if (lexer.token() == Token.SELECT || lexer.token() == Token.WITH) {
                 SQLSelect select = select();
                 accept(Token.RPAREN);
-                queryRest(select.getQuery());
-                tableSource = new SQLSubqueryTableSource(select);
+                SQLSelectQuery query = queryRest(select.getQuery());
+                if (query instanceof SQLUnionQuery) {
+                    tableSource = new SQLUnionQueryTableSource((SQLUnionQuery) query);
+                } else {
+                    tableSource = new SQLSubqueryTableSource(select);
+                }
             } else if (lexer.token() == Token.LPAREN) {
                 tableSource = parseTableSource();
                 accept(Token.RPAREN);
@@ -329,7 +362,8 @@ public class SQLSelectParser extends SQLParser {
 
     protected SQLTableSource parseTableSourceRest(SQLTableSource tableSource) {
         if ((tableSource.getAlias() == null) || (tableSource.getAlias().length() == 0)) {
-            if (lexer.token() != Token.LEFT && lexer.token() != Token.RIGHT && lexer.token() != Token.FULL) {
+            if (lexer.token() != Token.LEFT && lexer.token() != Token.RIGHT && lexer.token() != Token.FULL
+                && !identifierEquals("STRAIGHT_JOIN") && !identifierEquals("CROSS")) {
                 String alias = as();
                 if (alias != null) {
                     tableSource.setAlias(alias);
@@ -394,7 +428,7 @@ public class SQLSelectParser extends SQLParser {
                 lexer.nextToken();
                 if (lexer.token() == Token.LPAREN) {
                     lexer.nextToken();
-                    this.exprParser.exprList(join.getUsing());
+                    this.exprParser.exprList(join.getUsing(), join);
                     accept(Token.RPAREN);
                 } else {
                     join.getUsing().add(this.expr());

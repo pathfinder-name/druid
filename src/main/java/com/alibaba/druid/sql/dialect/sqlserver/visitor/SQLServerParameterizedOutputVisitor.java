@@ -22,12 +22,24 @@ import com.alibaba.druid.sql.ast.expr.SQLIntegerExpr;
 import com.alibaba.druid.sql.ast.expr.SQLNCharExpr;
 import com.alibaba.druid.sql.ast.expr.SQLNullExpr;
 import com.alibaba.druid.sql.ast.expr.SQLNumberExpr;
+import com.alibaba.druid.sql.ast.expr.SQLVariantRefExpr;
 import com.alibaba.druid.sql.visitor.ParameterizedOutputVisitorUtils;
+import com.alibaba.druid.sql.visitor.ParameterizedVisitor;
 
-public class SQLServerParameterizedOutputVisitor extends SQLServerOutputVisitor {
+public class SQLServerParameterizedOutputVisitor extends SQLServerOutputVisitor implements ParameterizedVisitor {
+
+    private int replaceCount;
 
     public SQLServerParameterizedOutputVisitor(Appendable appender){
         super(appender);
+    }
+
+    public int getReplaceCount() {
+        return this.replaceCount;
+    }
+
+    public void incrementReplaceCunt() {
+        replaceCount++;
     }
 
     public boolean visit(SQLInListExpr x) {
@@ -35,49 +47,57 @@ public class SQLServerParameterizedOutputVisitor extends SQLServerOutputVisitor 
     }
 
     public boolean visit(SQLBinaryOpExpr x) {
-        x = ParameterizedOutputVisitorUtils.merge(x);
+        x = ParameterizedOutputVisitorUtils.merge(this, x);
 
         return super.visit(x);
     }
 
-    public boolean visit(SQLNullExpr x) {
-        print('?');
-        return false;
-    }
-
     public boolean visit(SQLIntegerExpr x) {
-        if (Boolean.TRUE.equals(x.getAttribute(ParameterizedOutputVisitorUtils.ATTR_PARAMS_SKIP))) {
+        if (!ParameterizedOutputVisitorUtils.checkParameterize(x)) {
             return super.visit(x);
         }
 
-        print('?');
-        return false;
+        return ParameterizedOutputVisitorUtils.visit(this, x);
     }
 
     public boolean visit(SQLNumberExpr x) {
-        if (Boolean.TRUE.equals(x.getAttribute(ParameterizedOutputVisitorUtils.ATTR_PARAMS_SKIP))) {
+        if (!ParameterizedOutputVisitorUtils.checkParameterize(x)) {
             return super.visit(x);
         }
 
-        print('?');
-        return false;
+        return ParameterizedOutputVisitorUtils.visit(this, x);
     }
 
     public boolean visit(SQLCharExpr x) {
-        if (Boolean.TRUE.equals(x.getAttribute(ParameterizedOutputVisitorUtils.ATTR_PARAMS_SKIP))) {
+        if (!ParameterizedOutputVisitorUtils.checkParameterize(x)) {
             return super.visit(x);
         }
 
-        print('?');
-        return false;
+        return ParameterizedOutputVisitorUtils.visit(this, x);
     }
 
     public boolean visit(SQLNCharExpr x) {
-        if (Boolean.TRUE.equals(x.getAttribute(ParameterizedOutputVisitorUtils.ATTR_PARAMS_SKIP))) {
+        if (!ParameterizedOutputVisitorUtils.checkParameterize(x)) {
             return super.visit(x);
         }
 
-        print('?');
-        return false;
+        return ParameterizedOutputVisitorUtils.visit(this, x);
     }
+
+    public boolean visit(SQLNullExpr x) {
+        if (!ParameterizedOutputVisitorUtils.checkParameterize(x)) {
+            return super.visit(x);
+        }
+
+        return ParameterizedOutputVisitorUtils.visit(this, x);
+    }
+    
+    public boolean visit(SQLVariantRefExpr x) {
+        if (!ParameterizedOutputVisitorUtils.checkParameterize(x) || x.getName().equalsIgnoreCase("?")) {
+            return super.visit(x);
+        }
+        
+        return ParameterizedOutputVisitorUtils.visit(this, x);
+    }
+
 }

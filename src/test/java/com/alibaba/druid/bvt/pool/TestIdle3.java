@@ -20,7 +20,7 @@ import java.sql.Connection;
 
 import javax.management.ObjectName;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import com.alibaba.druid.mock.MockDriver;
@@ -30,7 +30,7 @@ import com.alibaba.druid.stat.DruidDataSourceStatManager;
 public class TestIdle3 extends TestCase {
 
     protected void setUp() throws Exception {
-        DruidDataSourceStatManager.cear();
+        DruidDataSourceStatManager.clear();
     }
 
     protected void tearDown() throws Exception {

@@ -20,20 +20,26 @@ import com.alibaba.druid.sql.dialect.sqlserver.visitor.SQLServerASTVisitor;
 
 public class SQLServerTop extends SQLServerObjectImpl {
 
-    /**
-     * 
-     */
-    private static final long serialVersionUID = 1L;
+    private SQLExpr expr;
+    private boolean percent;
+    private boolean withTies;
 
-    private SQLExpr           expr;
-    private boolean           percent;
-    private boolean           withTies;
+    public SQLServerTop(){
+
+    }
+
+    public SQLServerTop(SQLExpr expr){
+        this.setExpr(expr);
+    }
 
     public SQLExpr getExpr() {
         return expr;
     }
 
     public void setExpr(SQLExpr expr) {
+        if (expr != null) {
+            expr.setParent(this);
+        }
         this.expr = expr;
     }
 

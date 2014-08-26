@@ -22,20 +22,8 @@ import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
 public class OracleOrderByItem extends SQLSelectOrderByItem {
 
-    private static final long serialVersionUID = 1L;
-
-    private NullsOrderType    nullsOrderType;
-
     public OracleOrderByItem(){
 
-    }
-
-    public NullsOrderType getNullsOrderType() {
-        return this.nullsOrderType;
-    }
-
-    public void setNullsOrderType(NullsOrderType nullsOrderType) {
-        this.nullsOrderType = nullsOrderType;
     }
 
     protected void accept0(SQLASTVisitor visitor) {
@@ -65,22 +53,6 @@ public class OracleOrderByItem extends SQLSelectOrderByItem {
             buf.append(" NULLS FIRST");
         } else if (NullsOrderType.NullsLast.equals(this.nullsOrderType)) {
             buf.append(" NULLS LAST");
-        }
-    }
-
-    public static enum NullsOrderType {
-        NullsFirst, NullsLast;
-
-        public String toFormalString() {
-            if (NullsFirst.equals(this)) {
-                return "NULLS FIRST";
-            }
-
-            if (NullsLast.equals(this)) {
-                return "NULLS LAST";
-            }
-
-            throw new IllegalArgumentException();
         }
     }
 

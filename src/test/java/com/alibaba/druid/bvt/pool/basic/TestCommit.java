@@ -18,7 +18,7 @@ package com.alibaba.druid.bvt.pool.basic;
 import java.sql.Connection;
 import java.sql.Statement;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import com.alibaba.druid.mock.MockDriver;
@@ -32,7 +32,7 @@ public class TestCommit extends TestCase {
     private DruidDataSource dataSource;
 
     protected void setUp() throws Exception {
-        DruidDataSourceStatManager.cear();
+        DruidDataSourceStatManager.clear();
 
         driver = new MockDriver();
 

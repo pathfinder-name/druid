@@ -15,25 +15,24 @@
  */
 package com.alibaba.druid.sql.ast.statement;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.alibaba.druid.sql.ast.SQLDataType;
 import com.alibaba.druid.sql.ast.SQLExpr;
 import com.alibaba.druid.sql.ast.SQLName;
 import com.alibaba.druid.sql.ast.SQLObjectImpl;
 import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
-@SuppressWarnings("serial")
+import java.util.ArrayList;
+import java.util.List;
+
 public class SQLColumnDefinition extends SQLObjectImpl implements SQLTableElement {
 
-    private SQLName                         name;
-    private SQLDataType                     dataType;
-    private SQLExpr                         defaultExpr;
-    private final List<SQLColumnConstraint> constaints = new ArrayList<SQLColumnConstraint>(0);
-    private String                          comment;
+    protected SQLName                         name;
+    protected SQLDataType                     dataType;
+    protected SQLExpr                         defaultExpr;
+    protected final List<SQLColumnConstraint> constraints = new ArrayList<SQLColumnConstraint>(0);
+    protected SQLExpr                          comment;
 
-    private Boolean                         enable;
+    protected Boolean                         enable;
 
     public SQLColumnDefinition(){
 
@@ -68,11 +67,14 @@ public class SQLColumnDefinition extends SQLObjectImpl implements SQLTableElemen
     }
 
     public void setDefaultExpr(SQLExpr defaultExpr) {
+        if (defaultExpr != null) {
+            defaultExpr.setParent(this);
+        }
         this.defaultExpr = defaultExpr;
     }
 
-    public List<SQLColumnConstraint> getConstaints() {
-        return constaints;
+    public List<SQLColumnConstraint> getConstraints() {
+        return constraints;
     }
 
     @Override
@@ -92,16 +94,16 @@ public class SQLColumnDefinition extends SQLObjectImpl implements SQLTableElemen
             this.acceptChild(visitor, name);
             this.acceptChild(visitor, dataType);
             this.acceptChild(visitor, defaultExpr);
-            this.acceptChild(visitor, constaints);
+            this.acceptChild(visitor, constraints);
         }
         visitor.endVisit(this);
     }
 
-    public String getComment() {
+    public SQLExpr getComment() {
         return comment;
     }
 
-    public void setComment(String comment) {
+    public void setComment(SQLExpr comment) {
         this.comment = comment;
     }
 

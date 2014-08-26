@@ -21,18 +21,16 @@ import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
 public class SQLServerSelectQueryBlock extends SQLSelectQueryBlock {
 
-    /**
-     * 
-     */
-    private static final long serialVersionUID = 1L;
-
-    private SQLServerTop               top;
+    private SQLServerTop top;
 
     public SQLServerTop getTop() {
         return top;
     }
 
     public void setTop(SQLServerTop top) {
+        if (top != null) {
+            top.setParent(this);
+        }
         this.top = top;
     }
 

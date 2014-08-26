@@ -22,14 +22,17 @@ import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
 public class SQLSelectOrderByItem extends SQLObjectImpl {
 
-    private static final long          serialVersionUID = 1L;
-
     protected SQLExpr                  expr;
     protected String                   collate;
     protected SQLOrderingSpecification type;
+    protected NullsOrderType             nullsOrderType;
 
     public SQLSelectOrderByItem(){
 
+    }
+
+    public SQLSelectOrderByItem(SQLExpr expr){
+        this.setExpr(expr);
     }
 
     public SQLExpr getExpr() {
@@ -37,6 +40,9 @@ public class SQLSelectOrderByItem extends SQLObjectImpl {
     }
 
     public void setExpr(SQLExpr expr) {
+        if (expr != null) {
+            expr.setParent(this);
+        }
         this.expr = expr;
     }
 
@@ -54,6 +60,14 @@ public class SQLSelectOrderByItem extends SQLObjectImpl {
 
     public void setType(SQLOrderingSpecification type) {
         this.type = type;
+    }
+    
+    public NullsOrderType getNullsOrderType() {
+        return this.nullsOrderType;
+    }
+
+    public void setNullsOrderType(NullsOrderType nullsOrderType) {
+        this.nullsOrderType = nullsOrderType;
     }
 
     protected void accept0(SQLASTVisitor visitor) {
@@ -90,4 +104,19 @@ public class SQLSelectOrderByItem extends SQLObjectImpl {
         return true;
     }
 
+    public static enum NullsOrderType {
+        NullsFirst, NullsLast;
+
+        public String toFormalString() {
+            if (NullsFirst.equals(this)) {
+                return "NULLS FIRST";
+            }
+
+            if (NullsLast.equals(this)) {
+                return "NULLS LAST";
+            }
+
+            throw new IllegalArgumentException();
+        }
+    }
 }

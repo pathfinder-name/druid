@@ -22,10 +22,8 @@ import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
 public class SQLPropertyExpr extends SQLExprImpl implements SQLName {
 
-    private static final long serialVersionUID = 1L;
-
-    private SQLExpr           owner;
-    private String            name;
+    private SQLExpr owner;
+    private String  name;
 
     public SQLPropertyExpr(SQLExpr owner, String name){
         setOwner(owner);
@@ -35,8 +33,8 @@ public class SQLPropertyExpr extends SQLExprImpl implements SQLName {
     public SQLPropertyExpr(){
 
     }
-    
-    public String getSimleName() {
+
+    public String getSimpleName() {
         return name;
     }
 
@@ -50,7 +48,7 @@ public class SQLPropertyExpr extends SQLExprImpl implements SQLName {
         }
         this.owner = owner;
     }
-    
+
     public String getName() {
         return this.name;
     }

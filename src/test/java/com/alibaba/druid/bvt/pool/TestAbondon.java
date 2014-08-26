@@ -15,7 +15,7 @@
  */
 package com.alibaba.druid.bvt.pool;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import com.alibaba.druid.pool.DruidDataSource;
@@ -27,7 +27,7 @@ public class TestAbondon extends TestCase {
     private DruidDataSource dataSource;
 
     protected void setUp() throws Exception {
-        DruidDataSourceStatManager.cear();
+        DruidDataSourceStatManager.clear();
 
         dataSource = new DruidDataSource();
         dataSource.setRemoveAbandoned(true);

@@ -15,6 +15,15 @@
  */
 package com.alibaba.druid.pool.vendor;
 
+import com.alibaba.druid.pool.DruidPooledConnection;
+import com.alibaba.druid.pool.ValidConnectionChecker;
+import com.alibaba.druid.pool.ValidConnectionCheckerAdapter;
+import com.alibaba.druid.proxy.jdbc.ConnectionProxy;
+import com.alibaba.druid.support.logging.Log;
+import com.alibaba.druid.support.logging.LogFactory;
+import com.alibaba.druid.util.JdbcUtils;
+import com.alibaba.druid.util.Utils;
+
 import java.io.Serializable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -23,14 +32,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Properties;
-
-import com.alibaba.druid.pool.DruidPooledConnection;
-import com.alibaba.druid.pool.ValidConnectionChecker;
-import com.alibaba.druid.pool.ValidConnectionCheckerAdapter;
-import com.alibaba.druid.proxy.jdbc.ConnectionProxy;
-import com.alibaba.druid.support.logging.Log;
-import com.alibaba.druid.support.logging.LogFactory;
-import com.alibaba.druid.util.JdbcUtils;
 
 public class MySqlValidConnectionChecker extends ValidConnectionCheckerAdapter implements ValidConnectionChecker, Serializable {
 
@@ -43,7 +44,7 @@ public class MySqlValidConnectionChecker extends ValidConnectionCheckerAdapter i
 
     public MySqlValidConnectionChecker(){
         try {
-            clazz = JdbcUtils.loadDriverClass("com.mysql.jdbc.Connection");
+            clazz = Utils.loadClass("com.mysql.jdbc.Connection");
             ping = clazz.getMethod("ping");
             if (ping != null) {
                 usePingMethod = true;
@@ -73,7 +74,7 @@ public class MySqlValidConnectionChecker extends ValidConnectionCheckerAdapter i
         this.usePingMethod = usePingMethod;
     }
 
-    public boolean isValidConnection(Connection conn, String valiateQuery, int validationQueryTimeout) {
+    public boolean isValidConnection(Connection conn, String validateQuery, int validationQueryTimeout) {
         try {
             if (conn.isClosed()) {
                 return false;
@@ -118,7 +119,7 @@ public class MySqlValidConnectionChecker extends ValidConnectionCheckerAdapter i
             if (validationQueryTimeout > 0) {
                 stmt.setQueryTimeout(validationQueryTimeout);
             }
-            rs = stmt.executeQuery(valiateQuery);
+            rs = stmt.executeQuery(validateQuery);
             return true;
         } catch (SQLException e) {
             return false;

@@ -17,7 +17,7 @@ package com.alibaba.druid.bvt.sql.mysql;
 
 import java.util.List;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import com.alibaba.druid.sql.ast.SQLStatement;
@@ -156,7 +156,7 @@ public class LogicalOperatorsTest extends TestCase {
 
         String text = output(stmtList);
 
-        Assert.assertEquals("SELECT 0 || NULL;", text);
+        Assert.assertEquals("SELECT 0\n\tOR NULL;", text);
     }
 
     public void test_12() throws Exception {

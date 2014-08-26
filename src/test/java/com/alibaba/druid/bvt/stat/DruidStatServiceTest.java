@@ -27,7 +27,7 @@ import java.sql.ResultSet;
 import java.util.List;
 import java.util.Map;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import org.springframework.context.ApplicationContext;
@@ -60,7 +60,7 @@ public class DruidStatServiceTest extends TestCase {
         dataSource = new DruidDataSource();
 
         dataSource.setUrl("jdbc:mock:xxx");
-        dataSource.setFilters("stat");
+        dataSource.setFilters("mergeStat");
         dataSource.setTestOnBorrow(false);
 
         dataSource.init();

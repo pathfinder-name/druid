@@ -18,17 +18,15 @@ package com.alibaba.druid.sql.ast.statement;
 import com.alibaba.druid.sql.ast.SQLExpr;
 import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
-public class SQLCheck extends SQLConstaintImpl implements SQLTableElement {
+public class SQLCheck extends SQLConstraintImpl implements SQLTableElement {
 
-    private static final long serialVersionUID = 1L;
+    private SQLExpr expr;
 
-    private SQLExpr           expr;
-    
-    public SQLCheck() {
-        
+    public SQLCheck(){
+
     }
-    
-    public SQLCheck(SQLExpr expr) {
+
+    public SQLCheck(SQLExpr expr){
         this.setExpr(expr);
     }
 
@@ -51,6 +49,5 @@ public class SQLCheck extends SQLConstaintImpl implements SQLTableElement {
         }
         visitor.endVisit(this);
     }
-
 
 }

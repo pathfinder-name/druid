@@ -15,12 +15,12 @@
  */
 package com.alibaba.druid.stat;
 
+import com.alibaba.druid.util.StringUtils;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import com.alibaba.druid.util.StringUtils;
 
 public class TableStat {
 
@@ -33,6 +33,24 @@ public class TableStat {
     int createCount      = 0;
     int alterCount       = 0;
     int createIndexCount = 0;
+    int dropIndexCount   = 0;
+    int referencedCount  = 0;
+
+    public int getReferencedCount() {
+        return referencedCount;
+    }
+
+    public void incrementReferencedCount() {
+        referencedCount++;
+    }
+
+    public int getDropIndexCount() {
+        return dropIndexCount;
+    }
+
+    public void incrementDropIndexCount() {
+        this.dropIndexCount++;
+    }
 
     public int getCreateIndexCount() {
         return createIndexCount;
@@ -154,6 +172,9 @@ public class TableStat {
         }
         if (createIndexCount > 0) {
             buf.append("CreateIndex");
+        }
+        if (dropIndexCount > 0) {
+            buf.append("DropIndex");
         }
 
         return buf.toString();
@@ -339,26 +360,26 @@ public class TableStat {
         }
 
         public String toString() {
-            StringBuffer buf = new StringBuffer();
-            buf.append(this.column.toString());
-            buf.append(' ');
-            buf.append(this.operator);
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append(this.column.toString());
+            stringBuilder.append(' ');
+            stringBuilder.append(this.operator);
 
             if (values.size() == 1) {
-                buf.append(' ');
-                buf.append(String.valueOf(this.values.get(0)));
+                stringBuilder.append(' ');
+                stringBuilder.append(String.valueOf(this.values.get(0)));
             } else if (values.size() > 0) {
-                buf.append(" (");
+                stringBuilder.append(" (");
                 for (int i = 0; i < values.size(); ++i) {
                     if (i != 0) {
-                        buf.append(", ");
+                        stringBuilder.append(", ");
                     }
-                    buf.append(String.valueOf(values.get(i)));
+                    stringBuilder.append(String.valueOf(values.get(i)));
                 }
-                buf.append(")");
+                stringBuilder.append(")");
             }
 
-            return buf.toString();
+            return stringBuilder.toString();
         }
     }
 
@@ -463,6 +484,11 @@ public class TableStat {
         }
 
         public boolean equals(Object obj) {
+
+            if (!(obj instanceof  Column)) {
+                return false;
+            }
+
             Column column = (Column) obj;
 
             if (table == null) {
@@ -497,7 +523,10 @@ public class TableStat {
         Merge(16), //
         Truncate(32), //
         Alter(64), //
-        Drop(128);
+        Drop(128), //
+        DropIndex(256), //
+        CreateIndex(512)//
+        ; //
 
         public final int mark;
 

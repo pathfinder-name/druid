@@ -15,19 +15,7 @@
  */
 package com.alibaba.druid.wall;
 
-import java.security.PrivilegedAction;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
+import com.alibaba.druid.sql.SQLUtils;
 import com.alibaba.druid.sql.ast.SQLStatement;
 import com.alibaba.druid.sql.parser.Lexer;
 import com.alibaba.druid.sql.parser.NotAllowCommentException;
@@ -35,23 +23,50 @@ import com.alibaba.druid.sql.parser.ParserException;
 import com.alibaba.druid.sql.parser.SQLStatementParser;
 import com.alibaba.druid.sql.parser.Token;
 import com.alibaba.druid.sql.visitor.ExportParameterVisitor;
+import com.alibaba.druid.sql.visitor.ParameterizedOutputVisitorUtils;
 import com.alibaba.druid.util.LRUCache;
+import com.alibaba.druid.util.Utils;
 import com.alibaba.druid.wall.spi.WallVisitorUtils;
 import com.alibaba.druid.wall.violation.ErrorCode;
 import com.alibaba.druid.wall.violation.IllegalSQLObjectViolation;
 import com.alibaba.druid.wall.violation.SyntaxErrorViolation;
 
+import java.security.PrivilegedAction;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static com.alibaba.druid.util.JdbcSqlStatUtils.get;
+
 public abstract class WallProvider {
 
+    private String                                        name;
+
+    private final Map<String, Object>                     attributes              = new ConcurrentHashMap<String, Object>(
+                                                                                                                          1,
+                                                                                                                          0.75f,
+                                                                                                                          1);
+
+    private boolean                                       whiteListEnable         = true;
     private LRUCache<String, WallSqlStat>                 whiteList;
 
-    private int                                           MAX_SQL_LENGTH          = 2048;                                             // 1k
+    private int                                           MAX_SQL_LENGTH          = 8192;                                              // 8k
 
-    private int                                           whiteSqlMaxSize         = 500;                                              // 1k
+    private int                                           whiteSqlMaxSize         = 1000;
 
+    private boolean                                       blackListEnable         = true;
     private LRUCache<String, WallSqlStat>                 blackList;
+    private LRUCache<String, WallSqlStat>                 blackMergedList;
 
-    private int                                           blackSqlMaxSize         = 100;                                              // 1k
+    private int                                           blackSqlMaxSize         = 200;
 
     protected final WallConfig                            config;
 
@@ -59,8 +74,14 @@ public abstract class WallProvider {
 
     private static final ThreadLocal<Boolean>             privileged              = new ThreadLocal<Boolean>();
 
-    private final ConcurrentMap<String, WallFunctionStat> functionStats           = new ConcurrentHashMap<String, WallFunctionStat>(16, 0.75f, 1);
-    private final ConcurrentMap<String, WallTableStat>    tableStats              = new ConcurrentHashMap<String, WallTableStat>(16, 0.75f, 1);
+    private final ConcurrentMap<String, WallFunctionStat> functionStats           = new ConcurrentHashMap<String, WallFunctionStat>(
+                                                                                                                                    16,
+                                                                                                                                    0.75f,
+                                                                                                                                    1);
+    private final ConcurrentMap<String, WallTableStat>    tableStats              = new ConcurrentHashMap<String, WallTableStat>(
+                                                                                                                                 16,
+                                                                                                                                 0.75f,
+                                                                                                                                 1);
 
     public final WallDenyStat                             commentDeniedStat       = new WallDenyStat();
 
@@ -69,7 +90,7 @@ public abstract class WallProvider {
     protected final AtomicLong                            hardCheckCount          = new AtomicLong();
     protected final AtomicLong                            whiteListHitCount       = new AtomicLong();
     protected final AtomicLong                            blackListHitCount       = new AtomicLong();
-    protected final AtomicLong                            syntaxErrrorCount       = new AtomicLong();
+    protected final AtomicLong                            syntaxErrorCount        = new AtomicLong();
     protected final AtomicLong                            violationCount          = new AtomicLong();
     protected final AtomicLong                            violationEffectRowCount = new AtomicLong();
 
@@ -80,6 +101,18 @@ public abstract class WallProvider {
     public WallProvider(WallConfig config, String dbType){
         this.config = config;
         this.dbType = dbType;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public Map<String, Object> getAttributes() {
+        return attributes;
     }
 
     public void reset() {
@@ -102,6 +135,16 @@ public abstract class WallProvider {
         return this.functionStats;
     }
 
+    public WallSqlStat getSqlStat(String sql) {
+        WallSqlStat sqlStat = this.getWhiteSql(sql);
+
+        if (sqlStat == null) {
+            sqlStat = this.getBlackSql(sql);
+        }
+
+        return sqlStat;
+    }
+
     public WallTableStat getTableStat(String tableName) {
         String lowerCaseName = tableName.toLowerCase();
         if (lowerCaseName.startsWith("`") && lowerCaseName.endsWith("`")) {
@@ -109,6 +152,56 @@ public abstract class WallProvider {
         }
 
         return getTableStatWithLowerName(lowerCaseName);
+    }
+
+    public void addUpdateCount(WallSqlStat sqlStat, long updateCount) {
+        sqlStat.addUpdateCount(updateCount);
+
+        Map<String, WallSqlTableStat> sqlTableStats = sqlStat.getTableStats();
+        if (sqlTableStats == null) {
+            return;
+        }
+
+        for (Map.Entry<String, WallSqlTableStat> entry : sqlTableStats.entrySet()) {
+            String tableName = entry.getKey();
+            WallTableStat tableStat = this.getTableStat(tableName);
+            if (tableStat == null) {
+                continue;
+            }
+
+            WallSqlTableStat sqlTableStat = entry.getValue();
+
+            if (sqlTableStat.getDeleteCount() > 0) {
+                tableStat.addDeleteDataCount(updateCount);
+            } else if (sqlTableStat.getUpdateCount() > 0) {
+                tableStat.addUpdateDataCount(updateCount);
+            } else if (sqlTableStat.getInsertCount() > 0) {
+                tableStat.addInsertDataCount(updateCount);
+            }
+        }
+    }
+
+    public void addFetchRowCount(WallSqlStat sqlStat, long fetchRowCount) {
+        sqlStat.addAndFetchRowCount(fetchRowCount);
+
+        Map<String, WallSqlTableStat> sqlTableStats = sqlStat.getTableStats();
+        if (sqlTableStats == null) {
+            return;
+        }
+
+        for (Map.Entry<String, WallSqlTableStat> entry : sqlTableStats.entrySet()) {
+            String tableName = entry.getKey();
+            WallTableStat tableStat = this.getTableStat(tableName);
+            if (tableStat == null) {
+                continue;
+            }
+
+            WallSqlTableStat sqlTableStat = entry.getValue();
+
+            if (sqlTableStat.getSelectCount() > 0) {
+                tableStat.addFetchRowCount(fetchRowCount);
+            }
+        }
     }
 
     public WallTableStat getTableStatWithLowerName(String lowerCaseName) {
@@ -148,6 +241,55 @@ public abstract class WallProvider {
 
     public WallSqlStat addWhiteSql(String sql, Map<String, WallSqlTableStat> tableStats,
                                    Map<String, WallSqlFunctionStat> functionStats, boolean syntaxError) {
+
+        if (!whiteListEnable) {
+            WallSqlStat stat = new WallSqlStat(tableStats, functionStats, syntaxError);
+            return stat;
+        }
+
+        String mergedSql;
+        try {
+            mergedSql = ParameterizedOutputVisitorUtils.parameterize(sql, dbType);
+        } catch (Exception ex) {
+            WallSqlStat stat = new WallSqlStat(tableStats, functionStats, syntaxError);
+            stat.incrementAndGetExecuteCount();
+            return stat;
+        }
+
+        if (mergedSql != sql) {
+            WallSqlStat mergedStat;
+            lock.readLock().lock();
+            try {
+                if (whiteList == null) {
+                    whiteList = new LRUCache<String, WallSqlStat>(whiteSqlMaxSize);
+                }
+
+                mergedStat = whiteList.get(mergedSql);
+            } finally {
+                lock.readLock().unlock();
+            }
+
+            if (mergedStat == null) {
+                WallSqlStat newStat = new WallSqlStat(tableStats, functionStats, syntaxError);
+                newStat.setSample(sql);
+
+                lock.writeLock().lock();
+                try {
+                    mergedStat = whiteList.get(mergedSql);
+                    if (mergedStat == null) {
+                        whiteList.put(mergedSql, newStat);
+                        mergedStat = newStat;
+                    }
+                } finally {
+                    lock.writeLock().unlock();
+                }
+            }
+
+            mergedStat.incrementAndGetExecuteCount();
+
+            return mergedStat;
+        }
+
         lock.writeLock().lock();
         try {
             if (whiteList == null) {
@@ -157,8 +299,10 @@ public abstract class WallProvider {
             WallSqlStat wallStat = whiteList.get(sql);
             if (wallStat == null) {
                 wallStat = new WallSqlStat(tableStats, functionStats, syntaxError);
-                wallStat.incrementAndGetExecuteCount();
                 whiteList.put(sql, wallStat);
+                wallStat.setSample(sql);
+
+                wallStat.incrementAndGetExecuteCount();
             }
 
             return wallStat;
@@ -170,15 +314,37 @@ public abstract class WallProvider {
     public WallSqlStat addBlackSql(String sql, Map<String, WallSqlTableStat> tableStats,
                                    Map<String, WallSqlFunctionStat> functionStats, List<Violation> violations,
                                    boolean syntaxError) {
+        if (!blackListEnable) {
+            return new WallSqlStat(tableStats, functionStats, violations, syntaxError);
+        }
+
+        String mergedSql;
+        try {
+            mergedSql = ParameterizedOutputVisitorUtils.parameterize(sql, dbType);
+        } catch (Exception ex) {
+            // skip
+            mergedSql = sql;
+        }
+
         lock.writeLock().lock();
         try {
             if (blackList == null) {
                 blackList = new LRUCache<String, WallSqlStat>(blackSqlMaxSize);
             }
 
+            if (blackMergedList == null) {
+                blackMergedList = new LRUCache<String, WallSqlStat>(blackSqlMaxSize);
+            }
+
             WallSqlStat wallStat = blackList.get(sql);
             if (wallStat == null) {
-                wallStat = new WallSqlStat(tableStats, functionStats, violations, syntaxError);
+                wallStat = blackMergedList.get(mergedSql);
+                if (wallStat == null) {
+                    wallStat = new WallSqlStat(tableStats, functionStats, violations, syntaxError);
+                    blackMergedList.put(mergedSql, wallStat);
+                    wallStat.setSample(sql);
+                }
+
                 wallStat.incrementAndGetExecuteCount();
                 blackList.put(sql, wallStat);
             }
@@ -203,6 +369,24 @@ public abstract class WallProvider {
         return Collections.<String> unmodifiableSet(hashSet);
     }
 
+    public Set<String> getSqlList() {
+        Set<String> hashSet = new HashSet<String>();
+        lock.readLock().lock();
+        try {
+            if (whiteList != null) {
+                hashSet.addAll(whiteList.keySet());
+            }
+
+            if (blackMergedList != null) {
+                hashSet.addAll(blackMergedList.keySet());
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+
+        return Collections.<String> unmodifiableSet(hashSet);
+    }
+
     public Set<String> getBlackList() {
         Set<String> hashSet = new HashSet<String>();
         lock.readLock().lock();
@@ -217,36 +401,22 @@ public abstract class WallProvider {
         return Collections.<String> unmodifiableSet(hashSet);
     }
 
-    public List<Map<String, Object>> getBlackListStat() {
-        List<Map<String, Object>> map = new ArrayList<Map<String, Object>>();
-        lock.readLock().lock();
+    public void clearCache() {
+        lock.writeLock().lock();
         try {
+            if (whiteList != null) {
+                whiteList = null;
+            }
+
             if (blackList != null) {
-                for (Map.Entry<String, WallSqlStat> entry : this.blackList.entrySet()) {
-                    WallSqlStat sqlStat = entry.getValue();
-
-                    Map<String, Object> sqlStatMap = new LinkedHashMap<String, Object>();
-                    sqlStatMap.put("sql", entry.getKey());
-                    sqlStatMap.put("executeCount", sqlStat.getExecuteCount());
-                    sqlStatMap.put("effectRowCount", sqlStat.getEffectRowCount());
-
-                    List<Violation> violations = sqlStat.getViolations();
-                    if (violations.size() > 0) {
-                        sqlStatMap.put("violationMessage", violations.get(0).getMessage());
-                    }
-
-                    map.add(sqlStatMap);
-                }
+                blackList = null;
+            }
+            if (blackMergedList != null) {
+                blackMergedList = null;
             }
         } finally {
-            lock.readLock().unlock();
+            lock.writeLock().unlock();
         }
-
-        return map;
-    }
-
-    public void clearCache() {
-        clearWhiteList();
     }
 
     public void clearWhiteList() {
@@ -272,16 +442,36 @@ public abstract class WallProvider {
     }
 
     public WallSqlStat getWhiteSql(String sql) {
+        WallSqlStat stat = null;
         lock.readLock().lock();
         try {
             if (whiteList == null) {
                 return null;
             }
-
-            return whiteList.get(sql);
+            stat = whiteList.get(sql);
         } finally {
             lock.readLock().unlock();
         }
+
+        if (stat != null) {
+            return stat;
+        }
+
+        String mergedSql;
+        try {
+            mergedSql = ParameterizedOutputVisitorUtils.parameterize(sql, dbType);
+        } catch (Exception ex) {
+            // skip
+            return null;
+        }
+
+        lock.readLock().lock();
+        try {
+            stat = whiteList.get(mergedSql);
+        } finally {
+            lock.readLock().unlock();
+        }
+        return stat;
     }
 
     public WallSqlStat getBlackSql(String sql) {
@@ -333,11 +523,8 @@ public abstract class WallProvider {
 
         functionName = functionName.toLowerCase();
 
-        if (getConfig().getDenyFunctions().contains(functionName)) {
-            return false;
-        }
+        return !getConfig().getDenyFunctions().contains(functionName);
 
-        return true;
     }
 
     public boolean checkDenySchema(String schemaName) {
@@ -350,11 +537,8 @@ public abstract class WallProvider {
         }
 
         schemaName = schemaName.toLowerCase();
-        if (getConfig().getDenySchemas().contains(schemaName)) {
-            return false;
-        }
+        return !getConfig().getDenySchemas().contains(schemaName);
 
-        return true;
     }
 
     public boolean checkDenyTable(String tableName) {
@@ -363,11 +547,8 @@ public abstract class WallProvider {
         }
 
         tableName = WallVisitorUtils.form(tableName);
-        if (getConfig().getDenyTables().contains(tableName)) {
-            return false;
-        }
+        return !getConfig().getDenyTables().contains(tableName);
 
-        return true;
     }
 
     public boolean checkReadOnlyTable(String tableName) {
@@ -376,11 +557,8 @@ public abstract class WallProvider {
         }
 
         tableName = WallVisitorUtils.form(tableName);
-        if (getConfig().isReadOnly(tableName)) {
-            return false;
-        }
+        return !getConfig().isReadOnly(tableName);
 
-        return true;
     }
 
     public WallDenyStat getCommentDenyStat() {
@@ -405,8 +583,10 @@ public abstract class WallProvider {
 
         WallContext context = WallContext.current();
 
-        if (config.isDoPrivilegedAllow() && ispPivileged()) {
-            return new WallCheckResult();
+        if (config.isDoPrivilegedAllow() && ispPrivileged()) {
+            WallCheckResult checkResult = new WallCheckResult();
+            checkResult.setSql(sql);
+            return checkResult;
         }
 
         // first step, check whiteList
@@ -414,6 +594,7 @@ public abstract class WallProvider {
         if (!mulltiTenant) {
             WallCheckResult checkResult = checkWhiteAndBlackList(sql);
             if (checkResult != null) {
+                checkResult.setSql(sql);
                 return checkResult;
             }
         }
@@ -438,16 +619,18 @@ public abstract class WallProvider {
                                                                                      + lastToken, sql));
             }
         } catch (NotAllowCommentException e) {
-            violations.add(new SyntaxErrorViolation(e, sql));
+            violations.add(new IllegalSQLObjectViolation(ErrorCode.COMMENT_STATEMENT_NOT_ALLOW, "comment not allow", sql));
             incrementCommentDeniedCount();
         } catch (ParserException e) {
-            syntaxErrrorCount.incrementAndGet();
+            syntaxErrorCount.incrementAndGet();
             syntaxError = true;
             if (config.isStrictSyntaxCheck()) {
                 violations.add(new SyntaxErrorViolation(e, sql));
             }
         } catch (Exception e) {
-            violations.add(new SyntaxErrorViolation(e, sql));
+            if (config.isStrictSyntaxCheck()) {
+                violations.add(new SyntaxErrorViolation(e, sql));
+            }
         }
 
         if (statementList.size() > 1 && !config.isMultiStatementAllow()) {
@@ -457,11 +640,12 @@ public abstract class WallProvider {
         WallVisitor visitor = createWallVisitor();
 
         if (statementList.size() > 0) {
-            SQLStatement stmt = statementList.get(0);
-            try {
-                stmt.accept(visitor);
-            } catch (ParserException e) {
-                violations.add(new SyntaxErrorViolation(e, sql));
+            for (SQLStatement stmt : statementList) {
+                try {
+                    stmt.accept(visitor);
+                } catch (ParserException e) {
+                    violations.add(new SyntaxErrorViolation(e, sql));
+                }
             }
         }
 
@@ -469,19 +653,15 @@ public abstract class WallProvider {
             violations.addAll(visitor.getViolations());
         }
 
-        if (visitor.getViolations().size() == 0 && context != null && context.getWarnnings() >= 2) {
-            if (context.getDeleteNoneConditionWarnnings() > 0) {
-                violations.add(new IllegalSQLObjectViolation(ErrorCode.NONE_CONDITION, "delete none condition", sql));
-            } else if (context.getUpdateNoneConditionWarnnings() > 0) {
-                violations.add(new IllegalSQLObjectViolation(ErrorCode.NONE_CONDITION, "update none condition", sql));
-            } else if (context.getCommentCount() > 0) {
-                violations.add(new IllegalSQLObjectViolation(ErrorCode.COMMIT_NOT_ALLOW, "comment not allow", sql));
-            } else if (context.getLikeNumberWarnnings() > 0) {
-                violations.add(new IllegalSQLObjectViolation(ErrorCode.COMMIT_NOT_ALLOW, "like number", sql));
-            } else {
-                violations.add(new IllegalSQLObjectViolation(ErrorCode.COMPOUND, "multi-warnnings", sql));
-            }
-        }
+        // if (visitor.getViolations().size() == 0 && context != null && context.getWarnings() >= 2) {
+        // if (context.getCommentCount() > 0) {
+        // violations.add(new IllegalSQLObjectViolation(ErrorCode.COMMIT_NOT_ALLOW, "comment not allow", sql));
+        // } else if (context.getLikeNumberWarnings() > 0) {
+        // violations.add(new IllegalSQLObjectViolation(ErrorCode.COMMIT_NOT_ALLOW, "like number", sql));
+        // } else {
+        // violations.add(new IllegalSQLObjectViolation(ErrorCode.COMPOUND, "multi-warnnings", sql));
+        // }
+        // }
 
         WallSqlStat sqlStat = null;
         if (violations.size() > 0) {
@@ -504,23 +684,52 @@ public abstract class WallProvider {
             recordStats(tableStats, functionStats);
         }
 
+        WallCheckResult result;
         if (sqlStat != null) {
             context.setSqlStat(sqlStat);
-            return new WallCheckResult(sqlStat, statementList);
+            result = new WallCheckResult(sqlStat, statementList);
+        } else {
+            result = new WallCheckResult(null, violations, tableStats, functionStats, statementList, syntaxError);
         }
 
-        return new WallCheckResult(sqlStat, violations, tableStats, functionStats, statementList, syntaxError);
+        String resultSql;
+        if (visitor.isSqlModified()) {
+            resultSql = SQLUtils.toSQLString(statementList, dbType);
+        } else {
+            resultSql = sql;
+        }
+        result.setSql(resultSql);
+
+        return result;
     }
 
     private WallCheckResult checkWhiteAndBlackList(String sql) {
-        {
+        // check black list
+        if (blackListEnable) {
+            WallSqlStat sqlStat = getBlackSql(sql);
+            if (sqlStat != null) {
+                blackListHitCount.incrementAndGet();
+                violationCount.incrementAndGet();
+
+                if (sqlStat.isSyntaxError()) {
+                    syntaxErrorCount.incrementAndGet();
+                }
+
+                sqlStat.incrementAndGetExecuteCount();
+                recordStats(sqlStat.getTableStats(), sqlStat.getFunctionStats());
+
+                return new WallCheckResult(sqlStat);
+            }
+        }
+
+        if (whiteListEnable) {
             WallSqlStat sqlStat = getWhiteSql(sql);
             if (sqlStat != null) {
                 whiteListHitCount.incrementAndGet();
                 sqlStat.incrementAndGetExecuteCount();
 
                 if (sqlStat.isSyntaxError()) {
-                    syntaxErrrorCount.incrementAndGet();
+                    syntaxErrorCount.incrementAndGet();
                 }
 
                 recordStats(sqlStat.getTableStats(), sqlStat.getFunctionStats());
@@ -528,23 +737,6 @@ public abstract class WallProvider {
                 if (context != null) {
                     context.setSqlStat(sqlStat);
                 }
-                return new WallCheckResult(sqlStat);
-            }
-        }
-        // check black list
-        {
-            WallSqlStat sqlStat = getBlackSql(sql);
-            if (sqlStat != null) {
-                blackListHitCount.incrementAndGet();
-                violationCount.incrementAndGet();
-
-                if (sqlStat.isSyntaxError()) {
-                    syntaxErrrorCount.incrementAndGet();
-                }
-
-                sqlStat.incrementAndGetExecuteCount();
-                recordStats(sqlStat.getTableStats(), sqlStat.getFunctionStats());
-
                 return new WallCheckResult(sqlStat);
             }
         }
@@ -575,13 +767,13 @@ public abstract class WallProvider {
         }
     }
 
-    public static boolean ispPivileged() {
+    public static boolean ispPrivileged() {
         Boolean value = privileged.get();
         if (value == null) {
             return false;
         }
 
-        return value.booleanValue();
+        return value;
     }
 
     public static <T> T doPrivileged(PrivilegedAction<T> action) {
@@ -613,7 +805,7 @@ public abstract class WallProvider {
     }
 
     public long getSyntaxErrorCount() {
-        return syntaxErrrorCount.get();
+        return syntaxErrorCount.get();
     }
 
     public long getCheckCount() {
@@ -627,11 +819,11 @@ public abstract class WallProvider {
     public long getHardCheckCount() {
         return hardCheckCount.get();
     }
-    
+
     public long getViolationEffectRowCount() {
         return violationEffectRowCount.get();
     }
-    
+
     public void addViolationEffectRowCount(long rowCount) {
         violationEffectRowCount.addAndGet(rowCount);
     }
@@ -672,39 +864,111 @@ public abstract class WallProvider {
         }
     }
 
+    public WallProviderStatValue getStatValue(boolean reset) {
+        WallProviderStatValue statValue = new WallProviderStatValue();
+
+        statValue.setName(name);
+        statValue.setCheckCount(get(checkCount, reset));
+        statValue.setHardCheckCount(get(hardCheckCount, reset));
+        statValue.setViolationCount(get(violationCount, reset));
+        statValue.setViolationEffectRowCount(get(violationEffectRowCount, reset));
+        statValue.setBlackListHitCount(get(blackListHitCount, reset));
+        statValue.setWhiteListHitCount(get(whiteListHitCount, reset));
+        statValue.setSyntaxErrorCount(get(syntaxErrorCount, reset));
+
+        for (Map.Entry<String, WallTableStat> entry : this.tableStats.entrySet()) {
+            String tableName = entry.getKey();
+            WallTableStat tableStat = entry.getValue();
+
+            WallTableStatValue tableStatValue = tableStat.getStatValue(reset);
+
+            if (tableStatValue.getTotalExecuteCount() == 0) {
+                continue;
+            }
+
+            tableStatValue.setName(tableName);
+
+            statValue.getTables().add(tableStatValue);
+        }
+
+        for (Map.Entry<String, WallFunctionStat> entry : this.functionStats.entrySet()) {
+            String functionName = entry.getKey();
+            WallFunctionStat functionStat = entry.getValue();
+
+            WallFunctionStatValue functionStatValue = functionStat.getStatValue(reset);
+
+            if (functionStatValue.getInvokeCount() == 0) {
+                continue;
+            }
+            functionStatValue.setName(functionName);
+
+            statValue.getFunctions().add(functionStatValue);
+        }
+
+        final Lock lock = reset ? this.lock.writeLock() : this.lock.readLock();
+        lock.lock();
+        try {
+            if (this.whiteList != null) {
+                for (Map.Entry<String, WallSqlStat> entry : whiteList.entrySet()) {
+                    String sql = entry.getKey();
+                    WallSqlStat sqlStat = entry.getValue();
+                    WallSqlStatValue sqlStatValue = sqlStat.getStatValue(reset);
+
+                    if (sqlStatValue.getExecuteCount() == 0) {
+                        continue;
+                    }
+
+                    sqlStatValue.setSql(sql);
+
+                    long sqlHash = sqlStat.getSqlHash();
+                    if (sqlHash == 0) {
+                        sqlHash = Utils.murmurhash2_64(sql);
+                        sqlStat.setSqlHash(sqlHash);
+                    }
+                    sqlStatValue.setSqlHash(sqlHash);
+
+                    statValue.getWhiteList().add(sqlStatValue);
+                }
+            }
+
+            if (this.blackMergedList != null) {
+                for (Map.Entry<String, WallSqlStat> entry : blackMergedList.entrySet()) {
+                    String sql = entry.getKey();
+                    WallSqlStat sqlStat = entry.getValue();
+                    WallSqlStatValue sqlStatValue = sqlStat.getStatValue(reset);
+
+                    if (sqlStatValue.getExecuteCount() == 0) {
+                        continue;
+                    }
+
+                    sqlStatValue.setSql(sql);
+                    statValue.getBlackList().add(sqlStatValue);
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+
+        return statValue;
+    }
+
     public Map<String, Object> getStatsMap() {
-        Map<String, Object> info = new LinkedHashMap<String, Object>();
+        return getStatValue(false).toMap();
+    }
 
-        info.put("checkCount", this.getCheckCount());
-        info.put("hardCheckCount", this.getHardCheckCount());
-        info.put("violationCount", this.getViolationCount());
-        info.put("violationEffectRowCount", this.getViolationEffectRowCount());
-        info.put("blackListHitCount", this.getBlackListHitCount());
-        info.put("blackListSize", this.getBlackList().size());
-        info.put("whiteListHitCount", this.getWhiteListHitCount());
-        info.put("whiteListSize", this.getWhiteList().size());
-        info.put("syntaxErrrorCount", this.getSyntaxErrorCount());
+    public boolean isWhiteListEnable() {
+        return whiteListEnable;
+    }
 
-        {
-            List<Map<String, Object>> tables = new ArrayList<Map<String, Object>>();
-            for (Map.Entry<String, WallTableStat> entry : this.tableStats.entrySet()) {
-                Map<String, Object> statMap = entry.getValue().toMap();
-                statMap.put("name", entry.getKey());
-                tables.add(statMap);
-            }
-            info.put("tables", tables);
-        }
-        {
-            List<Map<String, Object>> functions = new ArrayList<Map<String, Object>>();
-            for (Map.Entry<String, WallFunctionStat> entry : this.functionStats.entrySet()) {
-                Map<String, Object> statMap = entry.getValue().toMap();
-                statMap.put("name", entry.getKey());
-                functions.add(statMap);
-            }
-            info.put("functions", functions);
-        }
-        // info.put("whiteList", this.getWhiteList());
-        info.put("blackList", this.getBlackListStat());
-        return info;
+    public void setWhiteListEnable(boolean whiteListEnable) {
+        this.whiteListEnable = whiteListEnable;
+    }
+
+    public boolean isBlackListEnable() {
+        return blackListEnable;
+    }
+
+    public void setBlackListEnable(boolean blackListEnable) {
+        this.blackListEnable = blackListEnable;
     }
 }

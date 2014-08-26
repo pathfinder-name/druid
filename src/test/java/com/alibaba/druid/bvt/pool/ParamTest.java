@@ -17,7 +17,7 @@ package com.alibaba.druid.bvt.pool;
 
 import java.sql.Connection;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import junit.framework.TestCase;
 
 import com.alibaba.druid.pool.DruidDataSource;
@@ -28,7 +28,7 @@ import com.alibaba.druid.stat.JdbcStatManager;
 public class ParamTest extends TestCase {
 
     protected void setUp() throws Exception {
-        DruidDataSourceStatManager.cear();
+        DruidDataSourceStatManager.clear();
     }
 
     protected void tearDown() throws Exception {

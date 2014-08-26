@@ -17,8 +17,7 @@ package com.alibaba.druid.sql.ast.statement;
 
 import com.alibaba.druid.sql.visitor.SQLASTVisitor;
 
-@SuppressWarnings("serial")
-public class NotNullConstraint extends SQLConstaintImpl implements SQLColumnConstraint {
+public class NotNullConstraint extends SQLConstraintImpl implements SQLColumnConstraint {
 
     public NotNullConstraint(){
 

@@ -65,7 +65,68 @@ public class SQLParser {
                     case KEY:
                     case INDEX:
                     case CASE:
-                        alias = lexer.token().name();
+                    case MODEL:
+                    case PCTFREE:
+                    case INITRANS:
+                    case MAXTRANS:
+                    case SEGMENT:
+                    case CREATION:
+                    case IMMEDIATE:
+                    case DEFERRED:
+                    case STORAGE:
+                    case NEXT:
+                    case MINEXTENTS:
+                    case MAXEXTENTS:
+                    case MAXSIZE:
+                    case PCTINCREASE:
+                    case FLASH_CACHE:
+                    case CELL_FLASH_CACHE:
+                    case KEEP:
+                    case NONE:
+                    case LOB:
+                    case STORE:
+                    case ROW:
+                    case CHUNK:
+                    case CACHE:
+                    case NOCACHE:
+                    case LOGGING:
+                    case NOCOMPRESS:
+                    case KEEP_DUPLICATES:
+                    case EXCEPTIONS:
+                    case PURGE:
+                    case INITIALLY:
+                    case END:
+                    case COMMENT:
+                    case ENABLE:
+                    case DISABLE:
+                    case SEQUENCE:
+                    case USER:
+                    case ANALYZE:
+                    case OPTIMIZE:
+                    case GRANT:
+                    case FULL:
+                    case TO:
+                    case NEW:
+                    case INTERVAL:
+                    case LOCK:
+                    case LIMIT:
+                    case IDENTIFIED:
+                    case PASSWORD:
+                    case BINARY:
+                    case WINDOW:
+                    case OFFSET:
+                    case SHARE:
+                    case START:
+                    case CONNECT:
+                    case MATCHED:
+                    case ERRORS:
+                    case REJECT:
+                    case UNLIMITED:
+                    case BEGIN:
+                    case EXCLUSIVE:
+                    case MODE:
+                    case ADVISE:
+                        alias = lexer.stringVal();
                         lexer.nextToken();
                         return alias;
                     case QUES:
@@ -105,10 +166,14 @@ public class SQLParser {
         } else if (lexer.token() == Token.CASE) {
             alias = lexer.token.name();
             lexer.nextToken();
-        }
+        } else if (lexer.token() == Token.USER) {
+            alias = lexer.stringVal();
+            lexer.nextToken();
+        } 
 
         switch (lexer.token()) {
             case KEY:
+            case INTERVAL:
                 alias = lexer.token().name();
                 lexer.nextToken();
                 return alias;
@@ -119,13 +184,39 @@ public class SQLParser {
         return alias;
     }
 
+    protected void printError(Token token){
+        String arround;
+        if (lexer.mark >= 0 && (lexer.text.length() > lexer.mark + 30)) {
+            if (lexer.mark - 5 > 0) {
+                arround = lexer.text.substring(lexer.mark - 5, lexer.mark + 30);
+            } else {
+                arround = lexer.text.substring(lexer.mark, lexer.mark + 30);
+            }
+
+        } else if (lexer.mark >= 0) {
+            if (lexer.mark - 5 > 0) {
+                arround = lexer.text.substring(lexer.mark - 5);
+            } else {
+                arround = lexer.text.substring(lexer.mark);
+            }
+        } else {
+            arround = lexer.text;
+        }
+        
+        // throw new
+        // ParserException("syntax error, error arround:'"+arround+"',expect "
+        // + token + ", actual " + lexer.token() + " "
+        // + lexer.stringVal() + ", pos " + this.lexer.pos());
+        throw new ParserException("syntax error, error in :'" + arround + "',expect " + token + ", actual "
+                                  + lexer.token() + " " + lexer.stringVal());
+    }
+    
     public void accept(Token token) {
         if (lexer.token() == token) {
             lexer.nextToken();
         } else {
             setErrorEndPos(lexer.pos());
-            throw new ParserException("syntax error, expect " + token + ", actual " + lexer.token() + " "
-                                        + lexer.stringVal() + ", pos " + this.lexer.pos());
+            printError(token);
         }
     }
 

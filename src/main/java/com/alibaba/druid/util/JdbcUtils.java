@@ -15,6 +15,10 @@
  */
 package com.alibaba.druid.util;
 
+import com.alibaba.druid.support.logging.Log;
+import com.alibaba.druid.support.logging.LogFactory;
+
+import javax.sql.DataSource;
 import java.io.Closeable;
 import java.io.InputStream;
 import java.io.PrintStream;
@@ -37,87 +41,90 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-import javax.sql.DataSource;
-
-import com.alibaba.druid.support.logging.Log;
-import com.alibaba.druid.support.logging.LogFactory;
-
 /**
  * @author wenshao<szujobs@hotmail.com>
  */
 public final class JdbcUtils implements JdbcConstants {
 
-    private final static Log        LOG              = LogFactory.getLog(JdbcUtils.class);
+    private final static Log        LOG                = LogFactory.getLog(JdbcUtils.class);
 
-    private static final Properties driverUrlMapping = new Properties();
+    private static final Properties DRIVER_URL_MAPPING = new Properties();
 
     static {
         try {
-            for (Enumeration<URL> e = Thread.currentThread().getContextClassLoader().getResources("META-INF/druid-driver.properties"); e.hasMoreElements();) {
-                URL url = e.nextElement();
+            ClassLoader ctxClassLoader = Thread.currentThread().getContextClassLoader();
+            if (ctxClassLoader != null) {
+                for (Enumeration<URL> e = ctxClassLoader.getResources("META-INF/druid-driver.properties"); e.hasMoreElements();) {
+                    URL url = e.nextElement();
 
-                Properties property = new Properties();
+                    Properties property = new Properties();
 
-                InputStream is = null;
-                try {
-                    is = url.openStream();
-                    property.load(is);
-                } finally {
-                    JdbcUtils.close(is);
+                    InputStream is = null;
+                    try {
+                        is = url.openStream();
+                        property.load(is);
+                    } finally {
+                        JdbcUtils.close(is);
+                    }
+
+                    DRIVER_URL_MAPPING.putAll(property);
                 }
-
-                driverUrlMapping.putAll(property);
             }
         } catch (Exception e) {
             LOG.error("load druid-driver.properties error", e);
         }
     }
 
-    public final static void close(Connection x) {
-        if (x != null) {
-            try {
-                x.close();
-            } catch (Exception e) {
-                LOG.error("close connection error", e);
-            }
+    public static void close(Connection x) {
+        if (x == null) {
+            return;
+        }
+        try {
+            x.close();
+        } catch (Exception e) {
+            LOG.debug("close connection error", e);
         }
     }
 
-    public final static void close(Statement x) {
-        if (x != null) {
-            try {
-                x.close();
-            } catch (Exception e) {
-                LOG.error("close statement error", e);
-            }
+    public static void close(Statement x) {
+        if (x == null) {
+            return;
+        }
+        try {
+            x.close();
+        } catch (Exception e) {
+            LOG.debug("close statement error", e);
         }
     }
 
-    public final static void close(ResultSet x) {
-        if (x != null) {
-            try {
-                x.close();
-            } catch (Exception e) {
-                LOG.error("close resultset error", e);
-            }
+    public static void close(ResultSet x) {
+        if (x == null) {
+            return;
+        }
+        try {
+            x.close();
+        } catch (Exception e) {
+            LOG.debug("close result set error", e);
         }
     }
 
-    public final static void close(Closeable x) {
-        if (x != null) {
-            try {
-                x.close();
-            } catch (Exception e) {
-                LOG.error("close error", e);
-            }
+    public static void close(Closeable x) {
+        if (x == null) {
+            return;
+        }
+
+        try {
+            x.close();
+        } catch (Exception e) {
+            LOG.debug("close error", e);
         }
     }
 
-    public final static void printResultSet(ResultSet rs) throws SQLException {
+    public static void printResultSet(ResultSet rs) throws SQLException {
         printResultSet(rs, System.out);
     }
 
-    public final static void printResultSet(ResultSet rs, PrintStream out) throws SQLException {
+    public static void printResultSet(ResultSet rs, PrintStream out) throws SQLException {
         ResultSetMetaData metadata = rs.getMetaData();
         int columnCount = metadata.getColumnCount();
         for (int columnIndex = 1; columnIndex <= columnCount; ++columnIndex) {
@@ -196,35 +203,35 @@ public final class JdbcUtils implements JdbcConstants {
                 } else if (type == Types.CLOB) {
                     out.print(String.valueOf(rs.getString(columnIndex)));
                 } else if (type == Types.JAVA_OBJECT) {
-                    Object objec = rs.getObject(columnIndex);
+                    Object object = rs.getObject(columnIndex);
 
                     if (rs.wasNull()) {
                         out.print("null");
                     } else {
-                        out.print(String.valueOf(objec));
+                        out.print(String.valueOf(object));
                     }
                 } else if (type == Types.LONGVARCHAR) {
-                    Object objec = rs.getString(columnIndex);
+                    Object object = rs.getString(columnIndex);
 
                     if (rs.wasNull()) {
                         out.print("null");
                     } else {
-                        out.print(String.valueOf(objec));
+                        out.print(String.valueOf(object));
                     }
                 } else if (type == Types.NULL) {
                     out.print("null");
                 } else {
-                    Object objec = rs.getObject(columnIndex);
+                    Object object = rs.getObject(columnIndex);
 
                     if (rs.wasNull()) {
                         out.print("null");
                     } else {
-                        if (objec instanceof byte[]) {
-                            byte[] bytes = (byte[]) objec;
+                        if (object instanceof byte[]) {
+                            byte[] bytes = (byte[]) object;
                             String text = HexBin.encode(bytes);
                             out.print(text);
                         } else {
-                            out.print(String.valueOf(objec));
+                            out.print(String.valueOf(object));
                         }
                     }
                 }
@@ -348,9 +355,13 @@ public final class JdbcUtils implements JdbcConstants {
             return "org.apache.derby.jdbc.EmbeddedDriver";
         } else if (rawUrl.startsWith("jdbc:mysql:")) {
             return MYSQL_DRIVER;
+        } else if (rawUrl.startsWith("jdbc:log4jdbc:")) {
+            return LOG4JDBC_DRIVER;
         } else if (rawUrl.startsWith("jdbc:mariadb:")) {
             return MARIADB_DRIVER;
-        } else if (rawUrl.startsWith("jdbc:oracle:")) {
+        } else if (rawUrl.startsWith("jdbc:oracle:") //
+                || rawUrl.startsWith("JDBC:oracle:")
+                ) {
             return ORACLE_DRIVER;
         } else if (rawUrl.startsWith("jdbc:alibaba:oracle:")) {
             return ALI_ORACLE_DRIVER;
@@ -416,6 +427,8 @@ public final class JdbcUtils implements JdbcConstants {
             return DERBY;
         } else if (rawUrl.startsWith("jdbc:mysql:")) {
             return MYSQL;
+        } else if (rawUrl.startsWith("jdbc:log4jdbc:")) {
+            return LOG4JDBC;
         } else if (rawUrl.startsWith("jdbc:mariadb:")) {
             return MARIADB;
         } else if (rawUrl.startsWith("jdbc:oracle:")) {
@@ -423,6 +436,8 @@ public final class JdbcUtils implements JdbcConstants {
         } else if (rawUrl.startsWith("jdbc:alibaba:oracle:")) {
             return ALI_ORACLE;
         } else if (rawUrl.startsWith("jdbc:microsoft:")) {
+            return SQL_SERVER;
+        } else if (rawUrl.startsWith("jdbc:sqlserver:")) {
             return SQL_SERVER;
         } else if (rawUrl.startsWith("jdbc:sybase:Tds:")) {
             return SYBASE;
@@ -486,7 +501,7 @@ public final class JdbcUtils implements JdbcConstants {
                 // skip
             }
         }
-        
+
         if (clazz == null) {
             try {
                 ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
@@ -626,31 +641,8 @@ public final class JdbcUtils implements JdbcConstants {
 
     private static void setParameters(PreparedStatement stmt, List<Object> parameters) throws SQLException {
         for (int i = 0, size = parameters.size(); i < size; ++i) {
-            stmt.setObject(i + 1, parameters.get(i));
-        }
-    }
-
-    public static Class<?> loadDriverClass(String className) {
-        Class<?> clazz = null;
-
-        if (className == null) {
-            return null;
-        }
-
-        try {
-            clazz = Thread.currentThread().getContextClassLoader().loadClass(className);
-        } catch (ClassNotFoundException e) {
-
-        }
-
-        if (clazz != null) {
-            return clazz;
-        }
-
-        try {
-            return Class.forName(className);
-        } catch (ClassNotFoundException e) {
-            return null;
+            Object param = parameters.get(i);
+            stmt.setObject(i + 1, param);
         }
     }
 

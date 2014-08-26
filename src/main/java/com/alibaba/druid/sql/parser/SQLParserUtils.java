@@ -15,8 +15,11 @@
  */
 package com.alibaba.druid.sql.parser;
 
+import com.alibaba.druid.sql.dialect.db2.parser.DB2ExprParser;
+import com.alibaba.druid.sql.dialect.db2.parser.DB2StatementParser;
 import com.alibaba.druid.sql.dialect.mysql.parser.MySqlExprParser;
 import com.alibaba.druid.sql.dialect.mysql.parser.MySqlStatementParser;
+import com.alibaba.druid.sql.dialect.odps.parser.OdpsExprParser;
 import com.alibaba.druid.sql.dialect.oracle.parser.OracleExprParser;
 import com.alibaba.druid.sql.dialect.oracle.parser.OracleStatementParser;
 import com.alibaba.druid.sql.dialect.postgresql.parser.PGExprParser;
@@ -44,16 +47,16 @@ public class SQLParserUtils {
             return new PGSQLStatementParser(sql);
         }
 
-        if (JdbcUtils.SQL_SERVER.equals(dbType)) {
-            return new SQLServerStatementParser(sql);
-        }
-
-        if (JdbcUtils.JTDS.equals(dbType)) {
+        if (JdbcUtils.SQL_SERVER.equals(dbType) || JdbcUtils.JTDS.equals(dbType)) {
             return new SQLServerStatementParser(sql);
         }
 
         if (JdbcUtils.H2.equals(dbType)) {
             return new MySqlStatementParser(sql);
+        }
+        
+        if (JdbcUtils.DB2.equals(dbType)) {
+            return new DB2StatementParser(sql);
         }
 
         return new SQLStatementParser(sql);
@@ -74,12 +77,16 @@ public class SQLParserUtils {
             return new PGExprParser(sql);
         }
 
-        if (JdbcUtils.SQL_SERVER.equals(dbType)) {
+        if (JdbcUtils.SQL_SERVER.equals(dbType) || JdbcUtils.JTDS.equals(dbType)) {
             return new SQLServerExprParser(sql);
         }
-
-        if (JdbcUtils.JTDS.equals(dbType)) {
-            return new SQLServerExprParser(sql);
+        
+        if (JdbcUtils.DB2.equals(dbType)) {
+            return new DB2ExprParser(sql);
+        }
+        
+        if (JdbcUtils.ODPS.equals(dbType)) {
+            return new OdpsExprParser(sql);
         }
 
         return new SQLExprParser(sql);

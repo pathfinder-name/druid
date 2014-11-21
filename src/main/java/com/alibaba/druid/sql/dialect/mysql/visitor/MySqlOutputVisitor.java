@@ -50,6 +50,7 @@ import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlExtractExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlIntervalExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlMatchAgainstExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlOutFileExpr;
+import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlSelectGroupByExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlUserName;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.CobarShowStatus;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlAlterTableAddColumn;
@@ -478,6 +479,11 @@ public class MySqlOutputVisitor extends SQLASTOutputVisitor implements MySqlASTV
                 print(' ');
                 option.getValue().accept(this);
                 continue;
+            } else if ("UNION".equals(key)) {
+                print(" = (");
+                option.getValue().accept(this);
+                print(')');
+                continue;
             }
 
             print(" = ");
@@ -497,6 +503,10 @@ public class MySqlOutputVisitor extends SQLASTOutputVisitor implements MySqlASTV
             decrementIndent();
         }
 
+        for (SQLCommentHint hint : x.getOptionHints()) {
+            print(' ');
+            hint.accept(this);
+        }
         return false;
     }
 
@@ -1117,6 +1127,11 @@ public class MySqlOutputVisitor extends SQLASTOutputVisitor implements MySqlASTV
         print("START TRANSACTION");
         if (x.isConsistentSnapshot()) {
             print(" WITH CONSISTENT SNAPSHOT");
+        }
+        
+        if (x.getHints() != null && x.getHints().size() > 0) {
+            print(" ");
+            printAndAccept(x.getHints(), " ");
         }
 
         if (x.isBegin()) {
@@ -2130,6 +2145,11 @@ public class MySqlOutputVisitor extends SQLASTOutputVisitor implements MySqlASTV
             }
             x.getTable().accept(this);
         }
+        
+        if (x.getHints() != null && x.getHints().size() > 0) {
+            print(" ");
+            printAndAccept(x.getHints(), " ");
+        }
 
         return false;
     }
@@ -2664,6 +2684,11 @@ public class MySqlOutputVisitor extends SQLASTOutputVisitor implements MySqlASTV
             print(' ');
             print(x.getLockType().name);
         }
+        
+        if (x.getHints() != null && x.getHints().size() > 0) {
+            print(" ");
+            printAndAccept(x.getHints(), " ");
+        }
         return false;
     }
 
@@ -3104,6 +3129,22 @@ public class MySqlOutputVisitor extends SQLASTOutputVisitor implements MySqlASTV
     @Override
     public void endVisit(MySqlHintStatement x) {
         
+    }
+    
+    @Override
+    public boolean visit(MySqlSelectGroupByExpr x) {
+        x.getExpr().accept(this);
+        if (x.getType() != null) {
+            print(" ");
+            print(x.getType().name().toUpperCase());
+        }
+
+        return false;
+    }
+
+    @Override
+    public void endVisit(MySqlSelectGroupByExpr x) {
+
     }
 
 } //

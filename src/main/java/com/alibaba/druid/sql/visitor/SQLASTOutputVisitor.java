@@ -1148,6 +1148,12 @@ public class SQLASTOutputVisitor extends SQLASTVisitorAdapter implements Printab
     public boolean visit(SQLSetStatement x) {
         print("SET ");
         printAndAccept(x.getItems(), ", ");
+        
+        if (x.getHints() != null && x.getHints().size() > 0) {
+            print(" ");
+            printAndAccept(x.getHints(), " ");
+        }
+        
         return false;
     }
 
@@ -1762,6 +1768,10 @@ public class SQLASTOutputVisitor extends SQLASTVisitorAdapter implements Printab
     @Override
     public boolean visit(SQLExplainStatement x) {
         print("EXPLAIN");
+        if (x.getHints() != null && x.getHints().size() > 0) {
+            print(" ");
+            printAndAccept(x.getHints(), " ");
+        }
         println();
         x.getStatement().accept(this);
         return false;
@@ -1979,7 +1989,7 @@ public class SQLASTOutputVisitor extends SQLASTVisitorAdapter implements Printab
 
     public void endVisit(SQLBooleanExpr x) {
     }
-    
+
     @Override
     public boolean visit(SQLUnionQueryTableSource x) {
         print("(");
@@ -1996,4 +2006,5 @@ public class SQLASTOutputVisitor extends SQLASTVisitorAdapter implements Printab
 
         return false;
     }
+
 }
